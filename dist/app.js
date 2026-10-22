@@ -8,7 +8,8 @@ const views = {
   documents: "Documents",
   statistics: "Statistiques",
   portal: "Aperçu portail client",
-  access: "Accès & confidentialité"
+  access: "Accès & confidentialité",
+  support: "Support technique"
 };
 
 const content = document.getElementById('content');
@@ -59,6 +60,10 @@ document.addEventListener('click', event => {
     'switch-patient': 'Le changement de client sera actif avec la base de démonstration.',
     'request-change': 'Demande de modification envoyée au centre (simulation).',
     'download-demo': 'Téléchargement de démonstration — aucun fichier réel.'
+    ,'add-capture': 'Ajout de capture simulé — aucun fichier n’est envoyé.'
+    ,'support-next': 'Demande préparée pour BackofficeLYC — aucun ticket réel n’est créé.'
+    ,'tutorials': 'Les tutoriels Yulyf seront réutilisés pour YulyfCentre.'
+    ,'grant-demo': 'Accès temporaire simulé. En production, il expirera automatiquement.'
   };
   showToast(messages[action.dataset.action] || 'Action de démonstration.');
 });

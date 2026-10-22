@@ -39,6 +39,7 @@
         <button class="nav-item" data-view="statistics"><span>▥</span>Statistiques</button>
         <button class="nav-item" data-view="portal"><span>◫</span>Aperçu portail client</button>
         <button class="nav-item" data-view="access"><span>⚿</span>Accès & confidentialité</button>
+        <button class="nav-item support-nav" data-view="support"><span>✦</span>Support technique</button>
       </nav>
 
       <div class="sidebar-footer">
@@ -179,6 +180,15 @@
     </div>
     <div class="role-grid"><article class="panel role-card"><span>V</span><div><h3>Valou</h3><p>Supadmin + Support</p></div><b>Accès complet d'administration</b></article><article class="panel role-card"><span>AD</span><div><h3>Administrateur du centre</h3><p>Gestion du centre</p></div><b>Administratif du centre uniquement</b></article><article class="panel role-card"><span>AC</span><div><h3>Accueil</h3><p>Secrétariat</p></div><b>Agenda, contacts et demandes</b></article><article class="panel role-card"><span>PR</span><div><h3>Praticien</h3><p>Professionnel</p></div><b>Ses clients et son espace privé</b></article></div>
     <article class="panel backoffice-link"><div class="backoffice-logo">LYC</div><div><p class="eyebrow">Gouvernance Yulyf</p><h2>Connexion à BackofficeLYC</h2><p>BackofficeLYC pilote les centres, abonnements, essais, quotas, support, diagnostics, scans de sécurité et éléments Tools. Il ne donne pas au personnel du centre l'accès aux dossiers médicaux.</p></div><div class="backoffice-status"><span>● Liaison prévue</span><small>Prochaine couche : contrat d'échange sécurisé</small></div></article>
+  </template>
+
+  <template id="support-view">
+    <div class="page-head"><div><p class="eyebrow">Relié à BackofficeLYC</p><h1>Support technique</h1><p>Le même parcours que dans Yulyf, adapté aux modules du centre.</p></div><span class="security-badge">● Support en ligne</span></div>
+    <div class="support-layout">
+      <article class="panel simone-panel"><header><div class="simone-avatar">S</div><div><h2>Simone · Accueil du Support</h2><p><i></i> En ligne</p></div></header><div class="chat-bubble"><strong>Bonjour Valou,</strong><p>Je suis Simone, l'agent IA d'accueil. Pourrais-tu me dire ce qui te tracasse ? Le Support recevra directement tout le contexte utile.</p></div><textarea placeholder="Écris ta demande à Simone…"></textarea><div class="support-compose"><button class="outline" data-action="add-capture">⌕ Ajouter une capture</button><button class="primary" data-action="support-next">Continuer</button></div><small>Maximum 5 captures de 5 Mo.</small></article>
+      <aside class="panel support-guide"><span>✦</span><h2>Une seule demande claire</h2><ol><li>Tu poses toutes tes questions.</li><li>Tu ajoutes tes captures si besoin.</li><li>Simone transmet tout dans BackofficeLYC.</li><li>Le Support répond dans le fil sécurisé.</li></ol><button class="text-button" data-action="tutorials">Ouvrir les tutoriels →</button></aside>
+    </div>
+    <article class="panel temporary-access-demo"><div><span>⚿</span><div><p class="eyebrow">Après un premier échange seulement</p><h2>Accès temporaire et limité</h2><p>Si le problème ne peut pas être résolu par messages, le centre choisit lui-même la seule rubrique accessible et la durée.</p></div></div><div class="scope-demo"><label>Rubrique accessible<select><option>Agenda du centre</option><option>Facturation</option><option>Documents administratifs</option><option>Paramètres du centre</option></select></label><label>Durée<select><option>1 heure</option><option>4 heures</option><option>8 heures</option><option>24 heures</option></select></label><button class="outline" data-action="grant-demo">Simuler l'autorisation</button></div><p class="audit-note">✓ Expiration automatique · Révocation immédiate · Toutes les actions sont journalisées · Aucun accès aux dossiers médicaux</p></article>
   </template>
 
   <script src="app.js"></script>
