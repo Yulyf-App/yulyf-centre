@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#063f49">
+  <meta name="description" content="Prototype de YulyfCentre pour les centres multidisciplinaires.">
+  <title>YulyfCentre — Projet en construction</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="demo-banner">
+    <span class="demo-dot"></span>
+    Prototype de démonstration — données fictives, aucune donnée médicale réelle
+  </div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span></div>
+        <div><strong>Yulyf<span>Centre</span></strong><small>Le centre, simplement.</small></div>
+      </div>
+
+      <div class="centre-switcher">
+        <span class="avatar">CH</span>
+        <div><strong>Centre Horizon</strong><small>Namur · 6 praticiens</small></div>
+        <button aria-label="Changer de centre">⌄</button>
+      </div>
+
+      <nav class="nav" aria-label="Navigation principale">
+        <button class="nav-item active" data-view="today"><span>⌂</span>Aujourd'hui</button>
+        <button class="nav-item" data-view="patients"><span>♙</span>Clients du centre</button>
+        <button class="nav-item" data-view="practitioners"><span>♧</span>Praticiens</button>
+        <button class="nav-item" data-view="agenda"><span>▣</span>Agenda</button>
+        <button class="nav-item" data-view="requests"><span>▤</span>Demandes <b class="nav-count">4</b></button>
+        <div class="nav-separator"></div>
+        <button class="nav-item" data-view="billing"><span>€</span>Facturation</button>
+        <button class="nav-item" data-view="documents"><span>▱</span>Documents</button>
+        <button class="nav-item" data-view="statistics"><span>▥</span>Statistiques</button>
+        <button class="nav-item" data-view="portal"><span>◫</span>Aperçu portail client</button>
+        <button class="nav-item" data-view="access"><span>⚿</span>Accès & confidentialité</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="security-mini"><span>✓</span><div><strong>Relié à BackofficeLYC</strong><small>Abonnements, support et sécurité centralisés.</small></div></div>
+        <small>Projet en construction · v0.1</small>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="menu-toggle" id="menuToggle" aria-label="Ouvrir le menu">☰</button>
+        <div class="breadcrumb"><span>YulyfCentre</span><b>›</b><strong id="breadcrumbTitle">Aujourd'hui</strong></div>
+        <div class="top-actions">
+          <button class="practitioner-link"><span>↔</span> Mon Yulyf personnel</button>
+          <button class="notification" aria-label="Notifications">♢<b>3</b></button>
+          <button class="profile"><span>V</span><span class="profile-copy"><strong>Valou</strong><small>Supadmin · Support</small></span>⌄</button>
+        </div>
+      </header>
+
+      <section class="content" id="content"></section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <template id="today-view">
+    <div class="page-head">
+      <div><p class="eyebrow">Mercredi 22 octobre 2026</p><h1>Bonjour Valou.</h1><p>Voici l'essentiel du centre aujourd'hui.</p></div>
+      <button class="primary" data-action="new-appointment">＋ Nouveau rendez-vous</button>
+    </div>
+    <div class="privacy-callout"><div class="shield">✓</div><div><strong>Le bon niveau d'information, pour la bonne personne.</strong><p>YulyfCentre affiche uniquement les informations administratives du centre. Les notes, analyses, consentements médicaux et dossiers privés restent dans Yulyf.</p></div><button data-view-link="access">Voir les règles d'accès →</button></div>
+    <div class="metric-grid">
+      <article class="metric"><span class="metric-icon teal">▣</span><div><small>Rendez-vous aujourd'hui</small><strong>18</strong><em>4 encore à venir</em></div></article>
+      <article class="metric"><span class="metric-icon gold">▤</span><div><small>Demandes à traiter</small><strong>4</strong><em>dont 2 nouvelles</em></div></article>
+      <article class="metric"><span class="metric-icon mint">♧</span><div><small>Praticiens présents</small><strong>4 / 6</strong><em>2 absents aujourd'hui</em></div></article>
+      <article class="metric"><span class="metric-icon blue">€</span><div><small>À facturer</small><strong>630 €</strong><em>7 prestations</em></div></article>
+    </div>
+    <div class="dashboard-grid">
+      <article class="panel schedule-panel">
+        <div class="panel-head"><div><h2>Prochains rendez-vous</h2><p>Une vue commune, sans ouvrir les dossiers privés.</p></div><button class="text-button" data-view-link="agenda">Agenda complet →</button></div>
+        <div class="timeline">
+          <div class="time">14:00</div><div class="line teal-line"></div><div class="appointment"><span class="avatar aqua">SB</span><div><strong>Sophie Bernard</strong><small>Dr Sarah Martin · Psychologue</small></div><span class="tag mint-tag">Confirmé</span></div>
+          <div class="time">14:30</div><div class="line gold-line"></div><div class="appointment"><span class="avatar peach">JL</span><div><strong>Julien Lefèvre</strong><small>Élodie Lambert · Kinésithérapeute</small></div><span class="tag pale-tag">Salle 2</span></div>
+          <div class="time">15:00</div><div class="line green-line"></div><div class="appointment"><span class="avatar green">CD</span><div><strong>Camille Dupont</strong><small>Lucas Moreau · Coach</small></div><span class="tag gold-tag">À confirmer</span></div>
+          <div class="time">16:00</div><div class="line blue-line"></div><div class="appointment"><span class="avatar blue">EL</span><div><strong>Emma Laurent</strong><small>Dr Sarah Martin · Psychologue</small></div><span class="tag mint-tag">Confirmé</span></div>
+        </div>
+      </article>
+      <div class="side-stack">
+        <article class="panel requests-mini"><div class="panel-head"><div><h2>Demandes</h2><p>À traiter aujourd'hui</p></div><span class="round-count">4</span></div>
+          <button data-view-link="requests"><span class="request-symbol">↔</span><div><strong>Déplacer un rendez-vous</strong><small>Julien Lefèvre · 11:20</small></div><b>›</b></button>
+          <button data-view-link="requests"><span class="request-symbol">＋</span><div><strong>Nouveau rendez-vous</strong><small>Nathan Petit · 10:45</small></div><b>›</b></button>
+          <button data-view-link="requests"><span class="request-symbol">✉</span><div><strong>Question administrative</strong><small>Emma Laurent · 09:30</small></div><b>›</b></button>
+        </article>
+        <article class="panel quick-actions"><h2>Actions rapides</h2><div><button data-action="new-patient">＋<span>Nouveau client</span></button><button data-action="new-message">✉<span>Message centre</span></button><button data-action="new-invoice">€<span>Créer une facture</span></button></div></article>
+      </div>
+    </div>
+  </template>
+
+  <template id="patients-view">
+    <div class="page-head"><div><p class="eyebrow">Répertoire administratif</p><h1>Clients du centre</h1><p>Uniquement les coordonnées et activités rattachées à ce centre.</p></div><button class="primary" data-action="new-patient">＋ Nouveau client</button></div>
+    <div class="toolbar"><label class="search">⌕<input data-table-search="patientsTable" placeholder="Rechercher un client, un téléphone…"></label><select><option>Tous les praticiens</option><option>Dr Sarah Martin</option><option>Élodie Lambert</option><option>Lucas Moreau</option></select><span class="result-count">89 clients actifs</span></div>
+    <article class="panel table-panel"><div class="table-wrap"><table id="patientsTable"><thead><tr><th>Client</th><th>Coordonnées</th><th>Praticien(s) du centre</th><th>Prochain rendez-vous</th><th></th></tr></thead><tbody>
+      <tr><td><span class="avatar aqua">SB</span><strong>Sophie Bernard</strong></td><td>0472 36 48 91<br><small>sophie.b@example.test</small></td><td><span class="dot teal-bg"></span>Dr Sarah Martin</td><td>22 oct. · 14:00</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
+      <tr><td><span class="avatar peach">JL</span><strong>Julien Lefèvre</strong></td><td>0493 12 67 45<br><small>julien.l@example.test</small></td><td><span class="dot gold-bg"></span>Élodie Lambert</td><td>22 oct. · 14:30</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
+      <tr><td><span class="avatar green">CD</span><strong>Camille Dupont</strong></td><td>0487 91 23 56<br><small>camille.d@example.test</small></td><td><span class="dot green-bg"></span>Lucas Moreau</td><td>22 oct. · 15:00</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
+      <tr><td><span class="avatar blue">EL</span><strong>Emma Laurent</strong></td><td>0478 45 12 30<br><small>emma.l@example.test</small></td><td><span class="dot teal-bg"></span>Dr Sarah Martin</td><td>24 oct. · 09:00</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
+      <tr><td><span class="avatar violet">NP</span><strong>Nathan Petit</strong></td><td>0491 78 56 23<br><small>nathan.p@example.test</small></td><td><span class="dot gold-bg"></span>Élodie Lambert</td><td>27 oct. · 11:30</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
+    </tbody></table></div></article>
+  </template>
+
+  <template id="practitioners-view">
+    <div class="page-head"><div><p class="eyebrow">Équipe du centre</p><h1>Praticiens</h1><p>Présences, accès et connexion à l'écosystème Yulyf.</p></div><button class="primary" data-action="new-practitioner">＋ Inviter un praticien</button></div>
+    <div class="practitioner-grid">
+      <article class="practitioner-card"><span class="avatar xl aqua">SM</span><div><h3>Dr Sarah Martin</h3><p>Psychologue</p><span class="yulyf-status connected">● Yulyf personnel relié</span></div><div class="days"><b>Lun</b><b>Mar</b><b>Mer</b></div><button data-action="open-practitioner">Gérer</button></article>
+      <article class="practitioner-card"><span class="avatar xl peach">ÉL</span><div><h3>Élodie Lambert</h3><p>Kinésithérapeute</p><span class="yulyf-status centre">● Yulyf du centre</span></div><div class="days"><b>Mar</b><b>Mer</b><b>Jeu</b><b>Ven</b></div><button data-action="open-practitioner">Gérer</button></article>
+      <article class="practitioner-card"><span class="avatar xl green">LM</span><div><h3>Lucas Moreau</h3><p>Coach</p><span class="yulyf-status connected">● Yulyf personnel relié</span></div><div class="days"><b>Lun</b><b>Mar</b><b>Jeu</b><b>Ven</b></div><button data-action="open-practitioner">Gérer</button></article>
+        <article class="practitioner-card"><span class="avatar xl violet">TC</span><div><h3>Praticien technique C</h3><p>Compte de test Yulyf</p><span class="yulyf-status connected">● Yulyf personnel relié</span></div><div class="days"><b>Compte technique</b></div><button data-action="open-practitioner">Tester</button></article>
+    </div>
+    <article class="panel link-explainer"><div><p class="eyebrow">Lien entre les espaces</p><h2>Partager l'utile. Préserver le reste.</h2><p>Le praticien utilise son identité Yulyf, mais le centre ne reçoit jamais son activité privée.</p></div><div class="space-card dark"><strong>Yulyf personnel</strong><span>Dossiers privés <b>FERMÉ</b></span><span>Notes de suivi <b>FERMÉ</b></span><span>Analyses <b>FERMÉ</b></span></div><div class="controlled-link">↔<small>Lien contrôlé</small></div><div class="space-card light"><strong>YulyfCentre</strong><span>Coordonnées du centre <b>OUVERT</b></span><span>Présences <b>OUVERT</b></span><span>Agenda du centre <b>OUVERT</b></span></div></article>
+  </template>
+
+  <template id="agenda-view">
+    <div class="page-head"><div><p class="eyebrow">Vue d'équipe</p><h1>Agenda partagé</h1><p>Les rendez-vous du centre, par praticien et par salle.</p></div><button class="primary" data-action="new-appointment">＋ Nouveau rendez-vous</button></div>
+    <div class="agenda-controls"><button>‹</button><strong>Mercredi 22 octobre 2026</strong><button>›</button><div><button class="selected">Jour</button><button>Semaine</button><button>Mois</button></div></div>
+    <article class="panel calendar"><div class="calendar-head"><span></span><strong>Sarah Martin<small>08:00 — 17:00</small></strong><strong>Élodie Lambert<small>10:00 — 19:00</small></strong><strong>Lucas Moreau<small>09:00 — 18:00</small></strong><strong>Sophie Laurent<small>12:00 — 20:00</small></strong></div><div class="calendar-body">
+      <div class="hours"><span>08:00</span><span>10:00</span><span>12:00</span><span>14:00</span><span>16:00</span><span>18:00</span></div>
+      <div class="cal-column"><button style="--top:8%;--height:17%" class="event pink">Julie Bernard<small>08:30 · 60 min</small></button><button style="--top:50%;--height:16%" class="event aqua-event">Sophie Bernard<small>14:00 · 60 min</small></button></div>
+      <div class="cal-column"><button style="--top:24%;--height:13%" class="event blue-event">Nathalie Richard<small>10:30 · 45 min</small></button><button style="--top:55%;--height:13%" class="event peach-event">Julien Lefèvre<small>14:30 · 45 min</small></button></div>
+      <div class="cal-column"><button style="--top:38%;--height:17%" class="event green-event">Camille Dupont<small>12:00 · 60 min</small></button><button style="--top:59%;--height:17%" class="event green-event">Lucas Moreau<small>15:00 · 60 min</small></button></div>
+      <div class="cal-column"><button style="--top:46%;--height:13%" class="event gold-event">Pierre Masson<small>13:00 · 45 min</small></button><button style="--top:74%;--height:17%" class="event gold-event">David Colin<small>17:00 · 60 min</small></button></div>
+    </div></article>
+  </template>
+
+  <template id="requests-view">
+    <div class="page-head"><div><p class="eyebrow">Boîte de réception du centre</p><h1>Demandes</h1><p>Rendez-vous, déplacements, annulations et questions administratives.</p></div><button class="primary" data-action="new-request">＋ Nouvelle demande</button></div>
+    <div class="tabs"><button class="active">Toutes <b>4</b></button><button>Rendez-vous</button><button>Déplacements</button><button>Annulations</button><button>Contacts</button></div>
+    <article class="panel request-list">
+      <div class="request-row"><span class="avatar aqua">SB</span><div><strong>Sophie Bernard</strong><small>Nouveau rendez-vous · Dr Sarah Martin</small></div><time>24 oct. · 10:00</time><span class="tag blue-tag">Nouvelle</span><div class="row-actions"><button data-action="accept-request">Accepter</button><button data-action="refuse-request">Refuser</button></div></div>
+      <div class="request-row"><span class="avatar peach">JL</span><div><strong>Julien Lefèvre</strong><small>Déplacer un rendez-vous · Élodie Lambert</small></div><time>25 oct. · 14:00</time><span class="tag gold-tag">À traiter</span><div class="row-actions"><button data-action="accept-request">Accepter</button><button data-action="refuse-request">Refuser</button></div></div>
+      <div class="request-row"><span class="avatar green">CD</span><div><strong>Camille Dupont</strong><small>Annulation · Lucas Moreau</small></div><time>26 oct. · 09:00</time><span class="tag mint-tag">Acceptée</span><div class="row-actions done">Traité</div></div>
+      <div class="request-row"><span class="avatar blue">EL</span><div><strong>Emma Laurent</strong><small>Question administrative · Centre Horizon</small></div><time>22 oct. · 16:30</time><span class="tag blue-tag">Nouvelle</span><div class="row-actions"><button data-action="reply-request">Répondre</button></div></div>
+    </article>
+  </template>
+
+  <template id="billing-view">
+    <div class="page-head"><div><p class="eyebrow">Administration financière</p><h1>Facturation</h1><p>Prestations du centre, factures et livre de caisse.</p></div><button class="primary" data-action="new-invoice">＋ Nouvelle facture</button></div>
+    <div class="tabs"><button class="active">Factures</button><button>Livre de caisse</button><button>Paiements</button><button>Paramètres</button></div>
+    <div class="metric-grid compact"><article class="metric"><span class="metric-icon mint">€</span><div><small>Payé ce mois</small><strong>8 420 €</strong><em>+ 8 %</em></div></article><article class="metric"><span class="metric-icon gold">⌛</span><div><small>En attente</small><strong>1 260 €</strong><em>14 factures</em></div></article><article class="metric"><span class="metric-icon blue">▤</span><div><small>À préparer</small><strong>630 €</strong><em>7 prestations</em></div></article></div>
+    <article class="panel table-panel"><div class="panel-head"><div><h2>Dernières factures</h2><p>Les factures appartiennent au centre et restent séparées des dossiers privés.</p></div></div><div class="table-wrap"><table><thead><tr><th>N°</th><th>Client</th><th>Praticien</th><th>Date</th><th>Montant</th><th>Statut</th></tr></thead><tbody><tr><td>2026-0184</td><td>Sophie Bernard</td><td>Dr Sarah Martin</td><td>22 oct.</td><td>85,00 €</td><td><span class="tag mint-tag">Payée</span></td></tr><tr><td>2026-0183</td><td>Julien Lefèvre</td><td>Élodie Lambert</td><td>22 oct.</td><td>65,00 €</td><td><span class="tag gold-tag">En attente</span></td></tr><tr><td>2026-0182</td><td>Camille Dupont</td><td>Lucas Moreau</td><td>21 oct.</td><td>75,00 €</td><td><span class="tag mint-tag">Payée</span></td></tr></tbody></table></div></article>
+  </template>
+
+  <template id="documents-view">
+    <div class="page-head"><div><p class="eyebrow">Ressources communes</p><h1>Documents du centre</h1><p>Documents administratifs et organisationnels — aucun dossier clinique.</p></div><button class="primary" data-action="new-document">＋ Ajouter un document</button></div>
+    <div class="document-grid"><article class="doc-card"><span>PDF</span><div><strong>Règlement intérieur</strong><small>Administration · Tous</small></div><button>⋮</button></article><article class="doc-card"><span>DOC</span><div><strong>Charte du centre</strong><small>Administration · Tous</small></div><button>⋮</button></article><article class="doc-card"><span>PDF</span><div><strong>Fiche d'information client</strong><small>Clients · Praticiens</small></div><button>⋮</button></article><article class="doc-card"><span>XLS</span><div><strong>Planning des vacances</strong><small>Organisation · Équipe</small></div><button>⋮</button></article></div>
+    <article class="panel forbidden"><span>⊘</span><div><strong>Les dossiers médicaux n'apparaissent jamais ici.</strong><p>Les documents liés aux séances, analyses ou diagnostics restent exclusivement dans l'espace Yulyf du praticien et du client.</p></div></article>
+  </template>
+
+  <template id="statistics-view">
+    <div class="page-head"><div><p class="eyebrow">Vue globale</p><h1>Statistiques</h1><p>Des indicateurs d'activité administrative, jamais des données cliniques.</p></div><select class="month-select"><option>Octobre 2026</option></select></div>
+    <div class="metric-grid"><article class="metric"><span class="metric-icon teal">▣</span><div><small>Rendez-vous</small><strong>124</strong><em>+ 12 %</em></div></article><article class="metric"><span class="metric-icon mint">♙</span><div><small>Clients uniques</small><strong>89</strong><em>+ 6 %</em></div></article><article class="metric"><span class="metric-icon blue">♧</span><div><small>Praticiens actifs</small><strong>6</strong><em>stable</em></div></article><article class="metric"><span class="metric-icon gold">☆</span><div><small>Satisfaction</small><strong>4,8 / 5</strong><em>+ 0,2</em></div></article></div>
+    <div class="chart-grid"><article class="panel chart-panel"><h2>Rendez-vous par semaine</h2><div class="bars"><span style="--h:50%"><b>24</b><small>Sem. 1</small></span><span style="--h:70%"><b>32</b><small>Sem. 2</small></span><span style="--h:88%"><b>41</b><small>Sem. 3</small></span><span style="--h:63%"><b>29</b><small>Sem. 4</small></span></div></article><article class="panel chart-panel"><h2>Répartition par spécialité</h2><div class="donut-row"><div class="donut"></div><ul><li><span class="teal-bg"></span>Psychologie 32 %</li><li><span class="blue-bg"></span>Kinésithérapie 24 %</li><li><span class="gold-bg"></span>Coaching 20 %</li><li><span class="green-bg"></span>Nutrition 14 %</li><li><span class="pale-bg"></span>Autres 10 %</li></ul></div></article></div>
+  </template>
+
+  <template id="portal-view">
+    <div class="page-head"><div><p class="eyebrow">Ce que voit le client</p><h1>Aperçu du portail</h1><p>Les informations du centre sont clairement identifiées et séparées du suivi personnel.</p></div><button class="outline" data-action="switch-patient">Changer de client</button></div>
+    <div class="portal-shell">
+      <aside class="portal-nav"><div class="portal-brand"><div class="brand-mark small"><span></span></div><strong>Yulyf</strong><small>PORTAIL CLIENT</small></div><button>✓ Mon suivi</button><button class="active">▣ Mes rendez-vous</button><button>▱ Mes documents</button><button>✉ Mes messages</button><div class="portal-divider"></div><span>ESPACE CENTRE</span><button class="centre-active">⌂ Centre Horizon</button></aside>
+      <div class="portal-content"><div class="portal-notice"><span>Patient technique C</span> Compte de test autorisé — informations administratives du centre uniquement.</div><h2>Centre Horizon</h2><p>Vos rendez-vous, documents et messages administratifs du centre.</p><div class="portal-cards"><article><span class="metric-icon teal">▣</span><div><small>PROCHAIN RENDEZ-VOUS</small><strong>22 octobre · 14:00</strong><p>Praticien technique C · Cabinet 3</p><button data-action="request-change">Demander une modification</button></div></article><article><span class="metric-icon gold">▤</span><div><small>FACTURE DISPONIBLE</small><strong>Facture TEST-0001</strong><p>85,00 € · Démonstration</p><button data-action="download-demo">Télécharger</button></div></article></div><article class="portal-message"><div><span class="avatar">CH</span><div><strong>Centre Horizon</strong><small>Aujourd'hui · 09:20</small></div></div><p>Bonjour Patient technique C, ceci est un message administratif de démonstration envoyé par le centre.</p></article><div class="private-divider"><span>⚿</span><div><strong>L'espace personnel Yulyf du Patient technique C reste privé</strong><p>Le centre ne voit ni ses notes, ni ses consentements, ni les contenus partagés avec Praticien technique C.</p></div></div></div>
+    </div>
+  </template>
+
+  <template id="access-view">
+    <div class="page-head"><div><p class="eyebrow">Protection des données</p><h1>Accès & confidentialité</h1><p>Les permissions ne sont pas un simple affichage : elles structurent tout le produit.</p></div><span class="security-badge">✓ Isolation active</span></div>
+    <div class="access-map">
+      <article class="access-column centre-column"><div class="access-title"><span>⌂</span><div><small>ESPACE</small><h2>YulyfCentre</h2></div></div><ul><li class="allowed">Coordonnées des clients du centre <b>AUTORISÉ</b></li><li class="allowed">Rendez-vous du centre <b>AUTORISÉ</b></li><li class="allowed">Factures du centre <b>AUTORISÉ</b></li><li class="allowed">Messages administratifs du centre <b>AUTORISÉ</b></li><li class="allowed">Documents administratifs <b>AUTORISÉ</b></li></ul></article>
+      <div class="wall"><span>⚿</span><strong>Frontière d'accès</strong><small>Contrôlée par le serveur</small></div>
+      <article class="access-column private-column"><div class="access-title"><span>●</span><div><small>ESPACE</small><h2>Yulyf personnel</h2></div></div><ul><li class="denied">Notes de suivi <b>INTERDIT</b></li><li class="denied">Analyses et YulyfIA <b>INTERDIT</b></li><li class="denied">Consentements médicaux <b>INTERDIT</b></li><li class="denied">Enregistrements de séances <b>INTERDIT</b></li><li class="denied">Clientèle extérieure au centre <b>INTERDIT</b></li></ul></article>
+    </div>
+    <div class="role-grid"><article class="panel role-card"><span>V</span><div><h3>Valou</h3><p>Supadmin + Support</p></div><b>Accès complet d'administration</b></article><article class="panel role-card"><span>AD</span><div><h3>Administrateur du centre</h3><p>Gestion du centre</p></div><b>Administratif du centre uniquement</b></article><article class="panel role-card"><span>AC</span><div><h3>Accueil</h3><p>Secrétariat</p></div><b>Agenda, contacts et demandes</b></article><article class="panel role-card"><span>PR</span><div><h3>Praticien</h3><p>Professionnel</p></div><b>Ses clients et son espace privé</b></article></div>
+    <article class="panel backoffice-link"><div class="backoffice-logo">LYC</div><div><p class="eyebrow">Gouvernance Yulyf</p><h2>Connexion à BackofficeLYC</h2><p>BackofficeLYC pilote les centres, abonnements, essais, quotas, support, diagnostics, scans de sécurité et éléments Tools. Il ne donne pas au personnel du centre l'accès aux dossiers médicaux.</p></div><div class="backoffice-status"><span>● Liaison prévue</span><small>Prochaine couche : contrat d'échange sécurisé</small></div></article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
