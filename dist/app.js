@@ -17,11 +17,11 @@ const content = document.getElementById('content');
 const breadcrumb = document.getElementById('breadcrumbTitle');
 const sidebar = document.getElementById('sidebar');
 const toast = document.getElementById('toast');
-const setupKey = 'yulyf-centre-setup-v1';
+const setupKey = 'yulyf-centre-setup-v2';
 const setupDefaults = {
-  centreName: 'Centre Horizon', publicName: 'Centre Horizon', email: 'bonjour@centrehorizon.example', phone: '+32 81 00 00 00',
-  company: 'Centre Horizon SRL', vat: 'BE 0123.456.789', address: 'Rue de la Santé 12', postal: '5000', city: 'Namur', country: 'Belgique',
-  language: 'Français', timezone: 'Europe/Brussels', website: '', logo: '', locationName: 'Centre Horizon · Namur', roomCount: '4',
+  centreName: 'Centre technique Z', publicName: 'Centre technique Z', email: 'centre-technique-z@example.test', phone: '+32 81 00 00 00',
+  company: 'Centre technique Z', vat: 'BE 0000.000.000', address: 'Adresse fictive de démonstration', postal: '5000', city: 'Namur', country: 'Belgique',
+  language: 'Français', timezone: 'Europe/Brussels', website: '', logo: '', locationName: 'Centre technique Z · Namur', roomCount: '4',
   openStart: '08:00', openEnd: '20:00', clientsReady: false, calendarProvider: '', emailProvider: '', teamReady: false,
   billingReady: false, notificationsReady: false, termsReady: false
   ,accessName: '', accessEmail: '', accessRole: 'Accueil', rolePermissions: { dashboard: 'edit', clients: 'view', practitioners: 'none', agenda: 'edit', requests: 'edit', billing: 'none', documents: 'view', statistics: 'none', settings: 'none' }
@@ -114,7 +114,7 @@ function renderSettings(section) {
     identity: `${settingsHeader('Identité du centre', 'Ces informations alimentent le portail client, les e-mails administratifs et la facturation.', 'Étape 1')}
       <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom public du centre *', 'centreName', setup.centreName)}${field('E-mail principal *', 'email', setup.email, 'email')}${field('Téléphone *', 'phone', setup.phone, 'tel')}${field('Site internet', 'website', setup.website, 'url')}${field('Raison sociale', 'company', setup.company)}${field('N° d’entreprise / TVA', 'vat', setup.vat)}${field('Adresse *', 'address', setup.address)}${field('Code postal', 'postal', setup.postal)}${field('Ville *', 'city', setup.city)}${field('Pays', 'country', setup.country)}</div><div class="setup-grid compact-grid"><label class="setup-field"><span>Langue</span><select name="language"><option>Français</option><option>Nederlands</option><option>English</option></select></label><label class="setup-field"><span>Fuseau horaire</span><select name="timezone"><option>Europe/Brussels</option><option>Europe/Paris</option><option>Europe/Luxembourg</option></select></label></div><div class="form-actions"><button class="primary" type="submit">Enregistrer l’identité</button></div></form>`,
     branding: `${settingsHeader('Logo et apparence', 'Comme dans Yulyf, le logo est prévisualisé avant son enregistrement.', 'Étape 2')}
-      <div class="panel branding-setup"><label class="logo-drop"><span>◉</span><div><strong>Choisir ou remplacer le logo</strong><small>PNG, JPG ou WEBP · 150 Ko maximum</small></div><input id="centreLogoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><div class="logo-preview ${setup.logo ? 'has-logo' : ''}">${setup.logo ? `<img src="${setup.logo}" alt="Logo du centre">` : '<span>CH</span>'}<div><strong>Aperçu du portail client</strong><small>${setup.centreName}</small></div></div>${setup.logo ? '<button class="outline" data-action="remove-centre-logo">Retirer le logo</button>' : ''}<p class="setup-note">Le même visuel sera utilisé dans le portail, les e-mails administratifs et les factures du centre.</p></div>`,
+      <div class="panel branding-setup"><label class="logo-drop"><span>◉</span><div><strong>Choisir ou remplacer le logo</strong><small>PNG, JPG ou WEBP · 150 Ko maximum</small></div><input id="centreLogoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><div class="logo-preview ${setup.logo ? 'has-logo' : ''}">${setup.logo ? `<img src="${setup.logo}" alt="Logo du centre">` : '<span>CZ</span>'}<div><strong>Aperçu du portail client</strong><small>${setup.centreName}</small></div></div>${setup.logo ? '<button class="outline" data-action="remove-centre-logo">Retirer le logo</button>' : ''}<p class="setup-note">Le même visuel sera utilisé dans le portail, les e-mails administratifs et les factures du centre.</p></div>`,
     locations: `${settingsHeader('Lieux et horaires d’activité', 'Ajoute l’adresse principale, le nombre de salles et les heures d’ouverture.', 'Étape 3')}
       <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName)}${field('Nombre de salles', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Ouverture', 'openStart', setup.openStart, 'time')}${field('Fermeture', 'openEnd', setup.openEnd, 'time')}</div><div class="weekday-picker"><span>Jours d’ouverture</span><button type="button" class="selected">Lun</button><button type="button" class="selected">Mar</button><button type="button" class="selected">Mer</button><button type="button" class="selected">Jeu</button><button type="button" class="selected">Ven</button><button type="button">Sam</button><button type="button">Dim</button></div><div class="form-actions"><button type="button" class="outline" data-action="add-location">＋ Ajouter un autre lieu</button><button class="primary" type="submit">Enregistrer le lieu</button></div></form>`,
     clients: `${settingsHeader('Clients du centre', 'Crée un client manuellement ou importe une liste existante. Rien n’est enregistré avant confirmation.', 'Étape 4')}
@@ -173,7 +173,7 @@ document.addEventListener('click', event => {
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',
     'new-patient': 'Ajout d’un client : seules les données administratives seront demandées.',
-    'new-message': 'Le message sera identifié « Centre Horizon » dans le portail.',
+    'new-message': 'Le message sera identifié « Centre technique Z » dans le portail.',
     'new-invoice': 'Création de facture simulée — aucune donnée réelle.',
     'new-practitioner': 'Invitation praticien simulée. Le lien Yulyf restera contrôlé.',
     'open-practitioner': 'Fiche des accès du praticien ouverte en démonstration.',
