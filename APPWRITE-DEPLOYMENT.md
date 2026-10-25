@@ -20,6 +20,18 @@ un brouillon, puis d’activer l’espace. Chaque ligne de centre est protégée
 permissions Appwrite réservées à son propriétaire authentifié. La table est
 isolée des tables historiques `records` et `admin_records` de LYC.
 
+## Couche identité administrative du centre
+
+- Le compte et le centre actif sont créés avant le remplissage du profil.
+- Le nom administratif (`name`) reste distinct du nom public (`publicName`).
+- Coordonnées persistées : e-mail, téléphone, site internet, adresse, code
+  postal, ville, pays, langue et fuseau horaire.
+- Identité légale facultative : raison sociale et numéro d’entreprise / TVA.
+- Les champs facultatifs peuvent être corrigés ou vidés sans conserver une
+  ancienne valeur dans Appwrite.
+- La complétion de cette étape exige le nom administratif, le nom public et les
+  coordonnées indispensables, mais ne bloque jamais l’accès à l’espace actif.
+
 ## Couche logo et identité visuelle
 
 - Bucket : `yulyf_centre_branding`

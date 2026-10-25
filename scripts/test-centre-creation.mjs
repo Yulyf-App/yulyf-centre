@@ -41,6 +41,8 @@ function assertSourceContracts() {
     ['alerte de progression', /il reste \$\{progress\.remaining\}% dans la création de votre espace/],
     ['accès direct aux paramètres', /data-action="complete-centre-profile"/],
     ['signal doré dans la navigation', /settingsAttention/],
+    ['nom public distinct du nom administratif', /'publicName', setup\.publicName/],
+    ['effacement du site internet pris en charge', /website: setup\.website\.trim\(\)/],
   ];
   for (const [label, pattern] of contracts) {
     if (!pattern.test(source)) throw new Error(`Contrat absent : ${label}.`);
@@ -111,8 +113,13 @@ try {
     tableId,
     rowId,
     data: {
+      name: 'Centre administratif temporaire',
+      publicName: 'Centre public temporaire',
       email: ownerEmail,
       phone: '+32 81 00 00 00',
+      company: 'Centre temporaire SRL',
+      vat: 'BE 0123.456.789',
+      website: 'https://centre-temporaire.example',
       address: 'Adresse technique',
       postal: '5000',
       city: 'Namur',
@@ -123,9 +130,17 @@ try {
       updatedAt,
     },
   });
-  if (completedProfile.status !== 'active' || completedProfile.city !== 'Namur') throw new Error('Le profil du centre n’est pas complétable après sa création.');
+  if (completedProfile.status !== 'active' || completedProfile.city !== 'Namur' || completedProfile.publicName !== 'Centre public temporaire' || completedProfile.company !== 'Centre temporaire SRL') throw new Error('Le profil administratif du centre n’est pas complétable après sa création.');
 
-  result = { status: 'ok', activeSpaceCreatedFromCredentials: true, profileCompletableLater: true, outsiderHidden: true, directReadBlocked };
+  const clearedOptionalField = await ownerTables.updateRow({
+    databaseId,
+    tableId,
+    rowId,
+    data: { website: '', updatedAt: new Date().toISOString() },
+  });
+  if (clearedOptionalField.website !== '') throw new Error('Un champ administratif facultatif ne peut pas être effacé.');
+
+  result = { status: 'ok', activeSpaceCreatedFromCredentials: true, administrativeIdentityPersisted: true, optionalFieldsClearable: true, profileCompletableLater: true, outsiderHidden: true, directReadBlocked };
 } finally {
   if (rowId && ownerTables) {
     try { await ownerTables.deleteRow({ databaseId, tableId, rowId }); } catch { cleanupErrors.push('row'); }
