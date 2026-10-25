@@ -40,6 +40,7 @@ function assertSourceContracts() {
     ['confirmation du mot de passe', /name="passwordConfirm"/],
     ['alerte de progression', /il reste \$\{progress\.remaining\}% dans la création de votre espace/],
     ['accès direct aux paramètres', /data-action="complete-centre-profile"/],
+    ['signal doré dans la navigation', /settingsAttention/],
   ];
   for (const [label, pattern] of contracts) {
     if (!pattern.test(source)) throw new Error(`Contrat absent : ${label}.`);

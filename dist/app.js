@@ -102,6 +102,7 @@ function saveSetup(patch = {}) {
   const state = document.getElementById('setupSaveState');
   if (state) { state.textContent = '✓ Enregistré dans cette démonstration'; state.classList.add('saved'); }
   updateSetupProgress();
+  updateCentreAttention();
 }
 
 function centreInitials() {
@@ -330,6 +331,7 @@ function openApplication() {
   document.getElementById('currentUserAvatar').textContent = displayName.trim().charAt(0).toUpperCase() || 'C';
   document.getElementById('currentUserRole').textContent = currentRoleLabel();
   applyNavigationPermissions();
+  updateCentreAttention();
   render(location.hash.slice(1) || 'today', false);
 }
 
@@ -368,10 +370,18 @@ function setupSteps() {
 }
 
 function centreProfileCompletion() {
-  const values = [setup.centreName, setup.email, setup.phone, setup.address, setup.postal, setup.city, setup.country, setup.language, setup.timezone, setup.openStart, setup.openEnd, setup.openingDays?.length];
-  const completed = values.filter(Boolean).length;
-  const percent = Math.round(completed / values.length * 100);
-  return { completed, total: values.length, percent, remaining: 100 - percent };
+  const steps = setupSteps();
+  const completed = steps.filter(([, done]) => done).length;
+  const percent = Math.round(completed / steps.length * 100);
+  return { completed, total: steps.length, percent, remaining: 100 - percent };
+}
+
+function updateCentreAttention() {
+  const marker = document.getElementById('settingsAttention');
+  if (!marker) return;
+  const { remaining } = centreProfileCompletion();
+  marker.hidden = remaining === 0;
+  marker.title = remaining ? `Configuration du centre à compléter · ${remaining}% restant` : '';
 }
 
 function renderCentreCompletionAlert(view) {
