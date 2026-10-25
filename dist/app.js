@@ -1,3 +1,15 @@
+import { Account, Client, ID, Permission, Query, Role, TablesDB } from 'appwrite';
+
+const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
+const APPWRITE_PROJECT_ID = 'yulyf-centre';
+const APPWRITE_DATABASE_ID = 'yulyf-centre';
+const APPWRITE_CENTRES_TABLE_ID = 'centres';
+const appwriteClient = new Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID);
+const account = new Account(appwriteClient);
+const tables = new TablesDB(appwriteClient);
+let currentUser = null;
+let centreRow = null;
+
 const views = {
   today: "Aujourd'hui",
   patients: "Clients du centre",
@@ -22,7 +34,7 @@ const setupDefaults = {
   centreName: 'Centre technique Z', publicName: 'Centre technique Z', email: 'centre-technique-z@example.test', phone: '+32 81 00 00 00',
   company: 'Centre technique Z', vat: 'BE 0000.000.000', address: 'Adresse fictive de démonstration', postal: '5000', city: 'Namur', country: 'Belgique',
   language: 'Français', timezone: 'Europe/Brussels', website: '', logo: '', locationName: 'Centre technique Z · Namur', roomCount: '4',
-  openStart: '08:00', openEnd: '20:00', clientsReady: false, calendarProvider: '', emailProvider: '', teamReady: false,
+  openStart: '08:00', openEnd: '20:00', openingDays: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven'], clientsReady: false, calendarProvider: '', emailProvider: '', teamReady: false,
   billingReady: false, notificationsReady: false, termsReady: false
   ,accessName: '', accessEmail: '', accessRole: 'Accueil', rolePermissions: { dashboard: 'edit', clients: 'view', practitioners: 'none', agenda: 'edit', requests: 'edit', billing: 'none', documents: 'view', statistics: 'none', settings: 'none' }
 };
@@ -39,6 +51,185 @@ function saveSetup(patch = {}) {
   const state = document.getElementById('setupSaveState');
   if (state) { state.textContent = '✓ Enregistré dans cette démonstration'; state.classList.add('saved'); }
   updateSetupProgress();
+}
+
+function safeText(value) {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+}
+
+function appwriteMessage(error) {
+  const code = String(error?.code || '');
+  const type = String(error?.type || '');
+  if (code === '401' || type.includes('user_invalid_credentials')) return 'Adresse e-mail ou mot de passe incorrect.';
+  if (code === '409' || type.includes('user_already_exists')) return 'Un compte existe déjà avec cette adresse e-mail.';
+  if (type.includes('password')) return 'Le mot de passe doit contenir au moins 8 caractères.';
+  if (type.includes('rate_limit')) return 'Trop de tentatives. Patiente quelques instants avant de réessayer.';
+  return 'La connexion à YulyfCentre a échoué. Réessaie ou contacte le Support.';
+}
+
+function renderAuthGate(mode = 'login', message = '') {
+  const gate = document.getElementById('authGate');
+  gate.hidden = false;
+  gate.innerHTML = `<section class="auth-card">
+    <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><strong>Yulyf<span>Centre</span></strong><small>Le centre, simplement.</small></div></div>
+    <p class="eyebrow">${mode === 'register' ? 'Créer un espace' : 'Connexion sécurisée'}</p>
+    <h1>${mode === 'register' ? 'Créer votre espace centre' : 'Retrouver votre centre'}</h1>
+    <p>${mode === 'register' ? 'Le premier compte devient administrateur du centre. Les autres accès seront ajoutés plus tard depuis les rôles.' : 'Connectez-vous avec le compte utilisé lors de la création du centre.'}</p>
+    ${message ? `<div class="auth-message">${safeText(message)}</div>` : ''}
+    <form id="centreAuthForm" data-auth-mode="${mode}">
+      ${mode === 'register' ? '<label>Votre nom<input name="name" autocomplete="name" maxlength="128" required></label>' : ''}
+      <label>Adresse e-mail<input name="email" type="email" autocomplete="email" required></label>
+      <label>Mot de passe<input name="password" type="password" autocomplete="current-password" minlength="8" required></label>
+      <button class="primary" type="submit">${mode === 'register' ? 'Créer mon compte et continuer' : 'Se connecter'}</button>
+    </form>
+    <button class="auth-switch" data-auth-switch="${mode === 'register' ? 'login' : 'register'}">${mode === 'register' ? 'J’ai déjà un espace centre' : 'Créer un nouvel espace centre'}</button>
+    <small class="auth-security">⚿ Environnement Appwrite européen · aucune donnée médicale demandée</small>
+  </section>`;
+}
+
+function centreFormValue(form, name) {
+  return String(new FormData(form).get(name) || '').trim();
+}
+
+function validateCentre(data) {
+  const required = ['centreName', 'email', 'phone', 'address', 'city', 'country', 'language', 'timezone', 'openStart', 'openEnd'];
+  if (required.some(key => !String(data[key] || '').trim())) return 'Complète tous les champs obligatoires du centre.';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return 'Indique une adresse e-mail valide.';
+  if (data.openStart >= data.openEnd) return 'L’heure de fermeture doit être postérieure à l’heure d’ouverture.';
+  if (!Array.isArray(data.openingDays) || !data.openingDays.length) return 'Sélectionne au moins un jour d’ouverture.';
+  return '';
+}
+
+function centreData(status = centreRow?.status || 'draft') {
+  const now = new Date().toISOString();
+  const data = {
+    ownerId: currentUser.$id,
+    name: setup.centreName.trim(),
+    publicName: (setup.publicName || setup.centreName).trim(),
+    email: setup.email.trim().toLowerCase(),
+    phone: setup.phone.trim(),
+    company: setup.company.trim(),
+    vat: setup.vat.trim(),
+    address: setup.address.trim(),
+    postal: setup.postal.trim(),
+    city: setup.city.trim(),
+    country: setup.country.trim(),
+    language: setup.language,
+    timezone: setup.timezone,
+    openStart: setup.openStart,
+    openEnd: setup.openEnd,
+    openingDays: setup.openingDays,
+    status,
+    activatedAt: status === 'active' ? (centreRow?.activatedAt || now) : null,
+    createdAt: centreRow?.createdAt || now,
+    updatedAt: now,
+  };
+  if (setup.website.trim()) data.website = setup.website.trim();
+  return data;
+}
+
+async function persistCentre(status = centreRow?.status || 'draft') {
+  const data = centreData(status);
+  const validation = validateCentre({ ...setup, ...data, centreName: data.name });
+  if (validation) throw new Error(validation);
+  if (centreRow) {
+    centreRow = await tables.updateRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CENTRES_TABLE_ID, rowId: centreRow.$id, data });
+  } else {
+    centreRow = await tables.createRow({
+      databaseId: APPWRITE_DATABASE_ID,
+      tableId: APPWRITE_CENTRES_TABLE_ID,
+      rowId: ID.unique(),
+      data,
+      permissions: [Permission.read(Role.user(currentUser.$id)), Permission.update(Role.user(currentUser.$id)), Permission.delete(Role.user(currentUser.$id))],
+    });
+  }
+  applyCentreRow(centreRow);
+  return centreRow;
+}
+
+function applyCentreRow(row) {
+  if (!row) return;
+  saveSetup({
+    centreName: row.name,
+    publicName: row.publicName,
+    email: row.email,
+    phone: row.phone,
+    company: row.company || '',
+    vat: row.vat || '',
+    website: row.website || '',
+    address: row.address,
+    postal: row.postal || '',
+    city: row.city,
+    country: row.country,
+    language: row.language,
+    timezone: row.timezone,
+    openStart: row.openStart,
+    openEnd: row.openEnd,
+    openingDays: row.openingDays || [],
+  });
+  document.querySelector('.centre-switcher strong').textContent = row.publicName || row.name;
+  document.querySelector('.centre-switcher small').textContent = row.status === 'active' ? 'Espace actif' : 'Configuration en cours';
+  document.querySelector('.centre-switcher .avatar').textContent = (row.publicName || row.name).split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
+}
+
+function renderCentreOnboarding(message = '') {
+  const gate = document.getElementById('authGate');
+  const days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+  gate.hidden = false;
+  gate.innerHTML = `<section class="auth-card centre-onboarding-card">
+    <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><strong>Yulyf<span>Centre</span></strong><small>Création de l’espace</small></div></div>
+    <p class="eyebrow">Première couche · Salon</p><h1>${centreRow ? 'Paramètres du centre' : 'Créer votre centre'}</h1>
+    <p>Ces informations administratives seront enregistrées dans l’environnement sécurisé du centre. Aucun dossier médical n’est demandé.</p>
+    ${message ? `<div class="auth-message">${safeText(message)}</div>` : ''}
+    <form id="centreOnboardingForm" class="onboarding-form">
+      <div class="onboarding-grid">
+        <label>Nom public du centre *<input name="centreName" value="${safeText(setup.centreName)}" maxlength="160" required></label>
+        <label>Raison sociale<input name="company" value="${safeText(setup.company)}" maxlength="200"></label>
+        <label>E-mail principal *<input name="email" type="email" value="${safeText(setup.email)}" required></label>
+        <label>Téléphone *<input name="phone" type="tel" value="${safeText(setup.phone)}" maxlength="40" required></label>
+        <label>N° d’entreprise / TVA<input name="vat" value="${safeText(setup.vat)}" maxlength="40"></label>
+        <label>Site internet<input name="website" type="url" value="${safeText(setup.website)}"></label>
+        <label class="wide">Adresse *<input name="address" value="${safeText(setup.address)}" maxlength="250" required></label>
+        <label>Code postal<input name="postal" value="${safeText(setup.postal)}" maxlength="20"></label>
+        <label>Ville *<input name="city" value="${safeText(setup.city)}" maxlength="120" required></label>
+        <label>Pays *<input name="country" value="${safeText(setup.country)}" maxlength="100" required></label>
+        <label>Langue<select name="language"><option ${setup.language === 'Français' ? 'selected' : ''}>Français</option><option ${setup.language === 'Nederlands' ? 'selected' : ''}>Nederlands</option><option ${setup.language === 'English' ? 'selected' : ''}>English</option></select></label>
+        <label>Fuseau horaire<select name="timezone"><option ${setup.timezone === 'Europe/Brussels' ? 'selected' : ''}>Europe/Brussels</option><option ${setup.timezone === 'Europe/Paris' ? 'selected' : ''}>Europe/Paris</option><option ${setup.timezone === 'Europe/Luxembourg' ? 'selected' : ''}>Europe/Luxembourg</option></select></label>
+        <label>Ouverture *<input name="openStart" type="time" value="${safeText(setup.openStart)}" required></label>
+        <label>Fermeture *<input name="openEnd" type="time" value="${safeText(setup.openEnd)}" required></label>
+      </div>
+      <fieldset><legend>Jours d’ouverture *</legend><div class="onboarding-days">${days.map(day => `<label><input type="checkbox" name="openingDays" value="${day}" ${setup.openingDays.includes(day) ? 'checked' : ''}><span>${day}</span></label>`).join('')}</div></fieldset>
+      <div class="onboarding-actions"><button class="outline" type="submit" name="intent" value="draft">Enregistrer le brouillon</button><button class="primary" type="submit" name="intent" value="active">Activer l’espace centre</button></div>
+    </form>
+    <button class="auth-switch" data-action="logout">Se déconnecter</button>
+  </section>`;
+}
+
+async function loadCentre() {
+  const result = await tables.listRows({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CENTRES_TABLE_ID, queries: [Query.equal('ownerId', [currentUser.$id]), Query.limit(1)] });
+  centreRow = result.rows?.[0] || null;
+  if (centreRow) applyCentreRow(centreRow);
+  return centreRow;
+}
+
+function openApplication() {
+  document.getElementById('authGate').hidden = true;
+  document.body.classList.remove('auth-pending');
+  document.getElementById('currentUserName').textContent = currentUser.name || currentUser.email;
+  document.getElementById('currentUserRole').textContent = 'Administrateur du centre';
+  render(location.hash.slice(1) || 'today', false);
+}
+
+async function bootstrap() {
+  try {
+    currentUser = await account.get();
+    await loadCentre();
+    if (!centreRow || centreRow.status !== 'active') return renderCentreOnboarding();
+    openApplication();
+  } catch {
+    document.body.classList.add('auth-pending');
+    renderAuthGate('login');
+  }
 }
 
 function setupSteps() {
@@ -111,12 +302,12 @@ function renderSettings(section) {
         <button data-setup-section="team"><b>6</b><div><strong>Inviter les praticiens</strong><small>Lier leur Yulyf personnel sans ouvrir leurs dossiers privés.</small></div>${status('team')}</button>
       </div>
       <div class="privacy-callout compact"><div class="shield">✓</div><div><strong>Limite appliquée dès l’import</strong><p>Le centre ne reçoit que le nom, l’adresse, l’e-mail, le téléphone et le rattachement administratif. Les notes, analyses, consentements et documents médicaux sont exclus.</p></div></div>`,
-    identity: `${settingsHeader('Identité du centre', 'Ces informations alimentent le portail client, les e-mails administratifs et la facturation.', 'Étape 1')}
-      <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom public du centre *', 'centreName', setup.centreName)}${field('E-mail principal *', 'email', setup.email, 'email')}${field('Téléphone *', 'phone', setup.phone, 'tel')}${field('Site internet', 'website', setup.website, 'url')}${field('Raison sociale', 'company', setup.company)}${field('N° d’entreprise / TVA', 'vat', setup.vat)}${field('Adresse *', 'address', setup.address)}${field('Code postal', 'postal', setup.postal)}${field('Ville *', 'city', setup.city)}${field('Pays', 'country', setup.country)}</div><div class="setup-grid compact-grid"><label class="setup-field"><span>Langue</span><select name="language"><option>Français</option><option>Nederlands</option><option>English</option></select></label><label class="setup-field"><span>Fuseau horaire</span><select name="timezone"><option>Europe/Brussels</option><option>Europe/Paris</option><option>Europe/Luxembourg</option></select></label></div><div class="form-actions"><button class="primary" type="submit">Enregistrer l’identité</button></div></form>`,
+    identity: `${settingsHeader('Identité du centre', 'Ces informations sont enregistrées dans Appwrite et alimentent le portail client, les e-mails administratifs et la facturation.', 'Étape 1')}
+      <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom public du centre *', 'centreName', setup.centreName)}${field('E-mail principal *', 'email', setup.email, 'email')}${field('Téléphone *', 'phone', setup.phone, 'tel')}${field('Site internet', 'website', setup.website, 'url')}${field('Raison sociale', 'company', setup.company)}${field('N° d’entreprise / TVA', 'vat', setup.vat)}${field('Adresse *', 'address', setup.address)}${field('Code postal', 'postal', setup.postal)}${field('Ville *', 'city', setup.city)}${field('Pays', 'country', setup.country)}</div><div class="setup-grid compact-grid"><label class="setup-field"><span>Langue</span><select name="language"><option ${setup.language === 'Français' ? 'selected' : ''}>Français</option><option ${setup.language === 'Nederlands' ? 'selected' : ''}>Nederlands</option><option ${setup.language === 'English' ? 'selected' : ''}>English</option></select></label><label class="setup-field"><span>Fuseau horaire</span><select name="timezone"><option ${setup.timezone === 'Europe/Brussels' ? 'selected' : ''}>Europe/Brussels</option><option ${setup.timezone === 'Europe/Paris' ? 'selected' : ''}>Europe/Paris</option><option ${setup.timezone === 'Europe/Luxembourg' ? 'selected' : ''}>Europe/Luxembourg</option></select></label></div><div class="form-actions"><span class="setup-live-status">${centreRow?.status === 'active' ? '● Espace actif' : '● Brouillon'}</span><button class="primary" type="submit">Enregistrer dans Appwrite</button></div></form>`,
     branding: `${settingsHeader('Logo et apparence', 'Comme dans Yulyf, le logo est prévisualisé avant son enregistrement.', 'Étape 2')}
       <div class="panel branding-setup"><label class="logo-drop"><span>◉</span><div><strong>Choisir ou remplacer le logo</strong><small>PNG, JPG ou WEBP · 150 Ko maximum</small></div><input id="centreLogoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><div class="logo-preview ${setup.logo ? 'has-logo' : ''}">${setup.logo ? `<img src="${setup.logo}" alt="Logo du centre">` : '<span>CZ</span>'}<div><strong>Aperçu du portail client</strong><small>${setup.centreName}</small></div></div>${setup.logo ? '<button class="outline" data-action="remove-centre-logo">Retirer le logo</button>' : ''}<p class="setup-note">Le même visuel sera utilisé dans le portail, les e-mails administratifs et les factures du centre.</p></div>`,
     locations: `${settingsHeader('Lieux et horaires d’activité', 'Ajoute l’adresse principale, le nombre de salles et les heures d’ouverture.', 'Étape 3')}
-      <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName)}${field('Nombre de salles', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Ouverture', 'openStart', setup.openStart, 'time')}${field('Fermeture', 'openEnd', setup.openEnd, 'time')}</div><div class="weekday-picker"><span>Jours d’ouverture</span><button type="button" class="selected">Lun</button><button type="button" class="selected">Mar</button><button type="button" class="selected">Mer</button><button type="button" class="selected">Jeu</button><button type="button" class="selected">Ven</button><button type="button">Sam</button><button type="button">Dim</button></div><div class="form-actions"><button type="button" class="outline" data-action="add-location">＋ Ajouter un autre lieu</button><button class="primary" type="submit">Enregistrer le lieu</button></div></form>`,
+      <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName)}${field('Nombre de salles', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Ouverture', 'openStart', setup.openStart, 'time')}${field('Fermeture', 'openEnd', setup.openEnd, 'time')}</div><div class="weekday-picker"><span>Jours d’ouverture</span>${['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(day => `<button type="button" data-opening-day="${day}" class="${setup.openingDays.includes(day) ? 'selected' : ''}">${day}</button>`).join('')}</div><div class="form-actions"><button type="button" class="outline" data-action="add-location">＋ Ajouter un autre lieu</button><button class="primary" type="submit">Enregistrer dans Appwrite</button></div></form>`,
     clients: `${settingsHeader('Clients du centre', 'Crée un client manuellement ou importe une liste existante. Rien n’est enregistré avant confirmation.', 'Étape 4')}
       <div class="setup-two-cols"><article class="panel setup-choice"><span class="choice-icon">＋</span><h3>Ajouter manuellement</h3><p>Nom, prénom, e-mail, téléphone, adresse et praticien du centre.</p><button class="outline" data-action="setup-manual-client">Créer un client fictif</button></article><article class="panel setup-choice"><span class="choice-icon">⇧</span><h3>Importer une liste</h3><p>CSV ou Excel. Les doublons seront signalés avant confirmation.</p><label class="primary file-button">Choisir un fichier fictif<input id="centreClientsInput" type="file" accept=".csv,.xlsx,text/csv" hidden></label></article></div><div id="clientImportPreview"></div>
       <article class="panel data-boundary"><strong>Colonnes autorisées</strong><p>Prénom · Nom · E-mail · Téléphone · Adresse · Praticien du centre</p><strong>Colonnes refusées</strong><p>Diagnostic · Notes · Analyses · Consentements · Comptes rendus médicaux</p></article>`,
@@ -145,6 +336,17 @@ function permissionRows(permissions) {
 }
 
 document.addEventListener('click', event => {
+  const authSwitch = event.target.closest('[data-auth-switch]');
+  if (authSwitch) return renderAuthGate(authSwitch.dataset.authSwitch);
+
+  const openingDay = event.target.closest('[data-opening-day]');
+  if (openingDay) {
+    const day = openingDay.dataset.openingDay;
+    const openingDays = setup.openingDays.includes(day) ? setup.openingDays.filter(item => item !== day) : [...setup.openingDays, day];
+    saveSetup({ openingDays });
+    openingDay.classList.toggle('selected');
+    return;
+  }
   const nav = event.target.closest('[data-view]');
   if (nav) return render(nav.dataset.view);
 
@@ -170,6 +372,9 @@ document.addEventListener('click', event => {
 
   const action = event.target.closest('[data-action]');
   if (!action) return;
+  if (action.dataset.action === 'logout') {
+    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
+  }
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',
     'new-patient': 'Ajout d’un client : seules les données administratives seront demandées.',
@@ -208,12 +413,41 @@ document.addEventListener('click', event => {
   showToast(messages[action.dataset.action] || 'Action de démonstration.');
 });
 
-document.addEventListener('submit', event => {
+document.addEventListener('submit', async event => {
+  if (event.target.id === 'centreAuthForm') {
+    event.preventDefault();
+    const form = event.target, mode = form.dataset.authMode, data = new FormData(form), email = String(data.get('email') || '').trim().toLowerCase(), password = String(data.get('password') || '');
+    form.querySelector('button[type="submit"]').disabled = true;
+    try {
+      if (mode === 'register') await account.create({ userId: ID.unique(), email, password, name: String(data.get('name') || '').trim() });
+      await account.createEmailPasswordSession({ email, password });
+      currentUser = await account.get();
+      await loadCentre();
+      if (mode === 'register' && !centreRow) saveSetup({ centreName: '', publicName: '', email: currentUser.email || email, phone: '', company: '', vat: '', website: '', address: '', postal: '', city: '', country: 'Belgique', language: 'Français', timezone: 'Europe/Brussels', openStart: '08:00', openEnd: '20:00', openingDays: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven'] });
+      if (!centreRow || centreRow.status !== 'active') renderCentreOnboarding(); else openApplication();
+    } catch (error) { renderAuthGate(mode, appwriteMessage(error)); }
+    return;
+  }
+  if (event.target.id === 'centreOnboardingForm') {
+    event.preventDefault();
+    const form = event.target, data = new FormData(form), submitter = event.submitter, status = submitter?.value === 'active' ? 'active' : 'draft';
+    saveSetup({
+      centreName: centreFormValue(form, 'centreName'), publicName: centreFormValue(form, 'centreName'), company: centreFormValue(form, 'company'), email: centreFormValue(form, 'email'), phone: centreFormValue(form, 'phone'), vat: centreFormValue(form, 'vat'), website: centreFormValue(form, 'website'), address: centreFormValue(form, 'address'), postal: centreFormValue(form, 'postal'), city: centreFormValue(form, 'city'), country: centreFormValue(form, 'country'), language: centreFormValue(form, 'language'), timezone: centreFormValue(form, 'timezone'), openStart: centreFormValue(form, 'openStart'), openEnd: centreFormValue(form, 'openEnd'), openingDays: data.getAll('openingDays').map(String)
+    });
+    form.querySelectorAll('button[type="submit"]').forEach(button => button.disabled = true);
+    try {
+      await persistCentre(status);
+      if (status === 'active') { openApplication(); showToast('Espace centre activé et enregistré dans Appwrite.'); }
+      else renderCentreOnboarding('Brouillon enregistré dans Appwrite. Tu peux le compléter puis l’activer.');
+    } catch (error) { renderCentreOnboarding(error.message || appwriteMessage(error)); }
+    return;
+  }
   const form = event.target.closest('[data-setup-form]');
   if (!form) return;
   event.preventDefault();
   saveSetup(Object.fromEntries(new FormData(form).entries()));
-  showToast('Paramètres enregistrés dans cette démonstration.');
+  try { await persistCentre(centreRow?.status || 'draft'); showToast('Paramètres enregistrés dans Appwrite.'); }
+  catch (error) { showToast(error.message || appwriteMessage(error)); }
 });
 
 document.addEventListener('change', event => {
@@ -269,4 +503,4 @@ document.addEventListener('input', event => {
 document.getElementById('menuToggle').addEventListener('click', () => sidebar.classList.toggle('open'));
 window.addEventListener('popstate', () => render(location.hash.slice(1) || 'today', false));
 
-render(location.hash.slice(1) || 'today', false);
+bootstrap();

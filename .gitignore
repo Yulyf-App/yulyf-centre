@@ -1,4 +1,3 @@
-.DS_Store
-Thumbs.db
-*.log
+node_modules/
+appwrite.config.json
 *.tar.gz
