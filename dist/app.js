@@ -199,8 +199,11 @@ document.addEventListener('click', event => {
   if (action.dataset.action === 'setup-manual-client') saveSetup({ clientsReady: true });
   if (action.dataset.action === 'setup-team-ready') saveSetup({ teamReady: true });
   if (action.dataset.action === 'create-access-demo') {
-    if (!setup.accessName || !setup.accessEmail) return showToast('Indique le nom et l’adresse e-mail de la personne.');
-    saveSetup({ teamReady: true });
+    const accessName = document.querySelector('[name="accessName"]')?.value.trim() || '';
+    const accessEmail = document.querySelector('[name="accessEmail"]')?.value.trim() || '';
+    if (!accessName || !accessEmail) return showToast('Indique le nom et l’adresse e-mail de la personne.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(accessEmail)) return showToast('Indique une adresse e-mail valide.');
+    saveSetup({ accessName, accessEmail, teamReady: true });
   }
   showToast(messages[action.dataset.action] || 'Action de démonstration.');
 });
@@ -254,6 +257,7 @@ document.addEventListener('change', event => {
 });
 
 document.addEventListener('input', event => {
+  if (event.target.matches('[data-access-field]')) saveSetup({ [event.target.name]: event.target.value });
   const id = event.target.dataset.tableSearch;
   if (!id) return;
   const query = event.target.value.toLowerCase().trim();
