@@ -5,6 +5,7 @@ const endpoint = 'https://fra.cloud.appwrite.io/v1';
 const projectId = '6aa80924002a9a6b3cf7';
 const databaseId = 'lyc';
 const tableId = 'yulyf_centres';
+const profilesTableId = 'yulyf_centre_member_profiles';
 const teamId = 'centre-technique-z';
 const memberUserId = '7f350333-4098-4217-8db2-e0323cbde651';
 let session;
@@ -36,6 +37,8 @@ try {
   const centres = await tables.listRows({ databaseId, tableId, queries: [Query.equal('teamId', [teamId]), Query.limit(1)] });
   const centre = centres.rows?.[0];
   if (!centre || centre.$id !== 'centre-technique-z') throw new Error('Le praticien ne retrouve pas le bon centre.');
+  const privateProfiles = await tables.listRows({ databaseId, tableId: profilesTableId, queries: [Query.equal('teamId', [teamId]), Query.limit(10)] });
+  if (privateProfiles.rows?.length) throw new Error('Le praticien peut lire le registre administratif des accès.');
 
   let centreUpdateBlocked = false;
   let roleEscalationBlocked = false;
@@ -46,7 +49,7 @@ try {
   try { await teams.updateMembership({ teamId, membershipId: membership.$id, roles: ['owner'] }); } catch { roleEscalationBlocked = true; }
   if (!centreUpdateBlocked || !roleEscalationBlocked) throw new Error(`Protection incomplète (centre=${centreUpdateBlocked}, rôles=${roleEscalationBlocked}).`);
 
-  console.log(JSON.stringify({ status: 'ok', member: user.name, centre: centre.name, teamResolved: true, roleResolved: true, centreUpdateBlocked, roleEscalationBlocked }));
+  console.log(JSON.stringify({ status: 'ok', member: user.name, centre: centre.name, teamResolved: true, roleResolved: true, memberProfilesHidden: true, centreUpdateBlocked, roleEscalationBlocked }));
 } finally {
   if (session?.$id) {
     try { cli(['users', 'delete-session', '--user-id', memberUserId, '--session-id', session.$id, '-R']); } catch {}

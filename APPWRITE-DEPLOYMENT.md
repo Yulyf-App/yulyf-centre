@@ -33,6 +33,20 @@ isolée des tables historiques `records` et `admin_records` de LYC.
 - Remplacement transactionnel : le nouveau fichier est rattaché avant que
   l’ancien soit supprimé ; un échec de rattachement supprime le nouveau fichier
 
+## Couche accès et rôles
+
+- Une équipe Appwrite par centre, référencée par `yulyf_centres.teamId`
+- Lecture du centre accordée uniquement au propriétaire et à son équipe
+- Rôle fonctionnel et droits par onglet stockés dans l’appartenance Appwrite
+- Trois niveaux par onglet : interaction, lecture seule ou invisible
+- Invitation réelle par e-mail avec retour vers le lien stable YulyfCentre
+- Table `yulyf_centre_member_profiles` : identité administrative de l’accès,
+  lisible et modifiable uniquement par le propriétaire du centre
+- L’autorisation ne dépend jamais de cette table administrative : Appwrite Teams
+  reste la source de vérité des droits
+- Test technique : Praticien technique C retrouve son centre et son rôle, mais
+  ne peut ni modifier le centre, ni lire le registre des accès, ni s’auto-promouvoir
+
 ## Ancien aperçu statique
 
 - Projet Appwrite partagé d’aperçus : `69eb57e00020de70ed30`

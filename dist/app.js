@@ -4,6 +4,7 @@ const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
 const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
 const APPWRITE_DATABASE_ID = 'lyc';
 const APPWRITE_CENTRES_TABLE_ID = 'yulyf_centres';
+const APPWRITE_MEMBER_PROFILES_TABLE_ID = 'yulyf_centre_member_profiles';
 const APPWRITE_BRANDING_BUCKET_ID = 'yulyf_centre_branding';
 const appwriteClient = new Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID);
 const account = new Account(appwriteClient);
@@ -14,6 +15,7 @@ let currentUser = null;
 let centreRow = null;
 let centreMembership = null;
 let centreMembers = [];
+let centreMemberProfiles = [];
 
 const permissionKeys = ['dashboard', 'clients', 'practitioners', 'agenda', 'requests', 'billing', 'documents', 'statistics', 'settings'];
 const viewPermissionKeys = { today: 'dashboard', patients: 'clients', practitioners: 'practitioners', agenda: 'agenda', requests: 'requests', billing: 'billing', documents: 'documents', statistics: 'statistics', settings: 'settings', portal: 'clients' };
@@ -338,9 +340,7 @@ async function loadCentre() {
   if (centreRow) {
     applyCentreRow(centreRow);
     if (centreRow.teamId) {
-      const result = await teams.listMemberships({ teamId: centreRow.teamId, queries: [Query.limit(100)] });
-      centreMembers = result.memberships || [];
-      centreMembership = centreMembers.find(membership => membership.userId === currentUser.$id) || null;
+      await refreshCentreMembers();
     }
   }
   return centreRow;
@@ -462,9 +462,13 @@ function memberRoleLabel(member) {
   return currentRoleLabel(member);
 }
 
+function memberProfile(member) {
+  return centreMemberProfiles.find(profile => profile.membershipId === member.$id) || null;
+}
+
 function membersPanel() {
   if (!centreMembers.length) return '<article class="panel member-empty"><p>Aucun accès supplémentaire.</p></article>';
-  return `<article class="panel member-list"><div class="panel-head"><div><h3>Accès existants</h3><p>${centreMembers.length} personne${centreMembers.length > 1 ? 's' : ''} rattachée${centreMembers.length > 1 ? 's' : ''} à ce centre.</p></div></div>${centreMembers.map(member => `<div class="member-row"><span class="avatar">${safeText((member.userName || member.userEmail || '?').charAt(0).toUpperCase())}</span><div><strong>${safeText(member.userName || 'Invitation')}</strong><small>${safeText(member.userEmail || '')}</small></div><span class="tag ${member.confirm ? 'mint-tag' : 'gold-tag'}">${member.confirm ? 'Actif' : 'Invitation envoyée'}</span><b>${safeText(memberRoleLabel(member))}</b>${member.roles?.includes('owner') ? '<em>Accès complet</em>' : `<div class="member-actions"><button class="outline" data-member-edit="${safeText(member.$id)}">Modifier</button><button class="text-button danger" data-member-remove="${safeText(member.$id)}">Retirer</button></div>`}</div>`).join('')}</article>`;
+  return `<article class="panel member-list"><div class="panel-head"><div><h3>Accès existants</h3><p>${centreMembers.length} personne${centreMembers.length > 1 ? 's' : ''} rattachée${centreMembers.length > 1 ? 's' : ''} à ce centre.</p></div></div>${centreMembers.map(member => { const profile = memberProfile(member); const name = profile?.name || member.userName || 'Membre du centre'; const email = profile?.email || member.userEmail || ''; return `<div class="member-row"><span class="avatar">${safeText(name.charAt(0).toUpperCase())}</span><div><strong>${safeText(name)}</strong><small>${safeText(email)}</small></div><span class="tag ${member.confirm ? 'mint-tag' : 'gold-tag'}">${member.confirm ? 'Actif' : 'Invitation envoyée'}</span><b>${safeText(memberRoleLabel(member))}</b>${member.roles?.includes('owner') ? '<em>Accès complet</em>' : `<div class="member-actions"><button class="outline" data-member-edit="${safeText(member.$id)}">Modifier</button><button class="text-button danger" data-member-remove="${safeText(member.$id)}">Retirer</button></div>`}</div>`; }).join('')}</article>`;
 }
 
 async function refreshCentreMembers() {
@@ -472,6 +476,8 @@ async function refreshCentreMembers() {
   const result = await teams.listMemberships({ teamId: centreRow.teamId, queries: [Query.limit(100)] });
   centreMembers = result.memberships || [];
   centreMembership = centreMembers.find(membership => membership.userId === currentUser.$id) || centreMembership;
+  const profiles = await tables.listRows({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_MEMBER_PROFILES_TABLE_ID, queries: [Query.equal('teamId', [centreRow.teamId]), Query.limit(100)] }).catch(() => ({ rows: [] }));
+  centreMemberProfiles = profiles.rows || [];
 }
 
 async function saveCentreAccess() {
@@ -483,8 +489,17 @@ async function saveCentreAccess() {
   const roles = membershipRoles(setup.accessRole, setup.rolePermissions);
   if (setup.accessMembershipId) {
     await teams.updateMembership({ teamId: centreRow.teamId, membershipId: setup.accessMembershipId, roles });
+    const profile = centreMemberProfiles.find(item => item.membershipId === setup.accessMembershipId);
+    if (profile) await tables.updateRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_MEMBER_PROFILES_TABLE_ID, rowId: profile.$id, data: { name: accessName, updatedAt: new Date().toISOString() } });
   } else {
-    await teams.createMembership({ teamId: centreRow.teamId, roles, email: accessEmail, name: accessName, url: `${location.origin}${location.pathname}` });
+    const membership = await teams.createMembership({ teamId: centreRow.teamId, roles, email: accessEmail, name: accessName, url: `${location.origin}${location.pathname}` });
+    try {
+      const now = new Date().toISOString();
+      await tables.createRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_MEMBER_PROFILES_TABLE_ID, rowId: ID.unique(), data: { centreId: centreRow.$id, teamId: centreRow.teamId, membershipId: membership.$id, name: accessName, email: accessEmail, createdAt: now, updatedAt: now }, permissions: [Permission.read(Role.user(currentUser.$id)), Permission.update(Role.user(currentUser.$id)), Permission.delete(Role.user(currentUser.$id))] });
+    } catch (error) {
+      await teams.deleteMembership({ teamId: centreRow.teamId, membershipId: membership.$id }).catch(() => {});
+      throw error;
+    }
   }
   await refreshCentreMembers();
   saveSetup({ accessName: '', accessEmail: '', accessMembershipId: '', teamReady: true });
@@ -567,7 +582,8 @@ document.addEventListener('click', async event => {
   if (memberEdit) {
     const member = centreMembers.find(item => item.$id === memberEdit.dataset.memberEdit);
     if (!member) return showToast('Cet accès est introuvable.');
-    saveSetup({ accessMembershipId: member.$id, accessName: member.userName || '', accessEmail: member.userEmail || '', accessRole: currentRoleLabel(member), rolePermissions: membershipPermissions(member) });
+    const profile = memberProfile(member);
+    saveSetup({ accessMembershipId: member.$id, accessName: profile?.name || member.userName || '', accessEmail: profile?.email || member.userEmail || '', accessRole: currentRoleLabel(member), rolePermissions: membershipPermissions(member) });
     renderSettings('team');
     return;
   }
@@ -579,6 +595,8 @@ document.addEventListener('click', async event => {
     memberRemove.disabled = true;
     try {
       await teams.deleteMembership({ teamId: centreRow.teamId, membershipId: member.$id });
+      const profile = memberProfile(member);
+      if (profile) await tables.deleteRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_MEMBER_PROFILES_TABLE_ID, rowId: profile.$id }).catch(() => {});
       await refreshCentreMembers();
       renderSettings('team');
       showToast('Accès retiré du centre.');
@@ -603,7 +621,7 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
   if (!action) return;
   if (action.dataset.action === 'logout') {
-    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
+    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
   }
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',
