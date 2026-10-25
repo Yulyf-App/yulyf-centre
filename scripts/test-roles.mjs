@@ -8,6 +8,7 @@ const tableId = 'yulyf_centres';
 const profilesTableId = 'yulyf_centre_member_profiles';
 const teamId = 'centre-technique-z';
 const memberUserId = '7f350333-4098-4217-8db2-e0323cbde651';
+const memberEmail = 'auditstructu@outlook.com';
 let session;
 
 function cli(args) {
@@ -26,6 +27,7 @@ try {
 
   const user = await account.get();
   if (user.$id !== memberUserId) throw new Error('La session technique ne correspond pas au praticien attendu.');
+  if (user.email !== memberEmail) throw new Error('L’adresse du Praticien technique C ne correspond pas au compte de test Outlook attendu.');
 
   const joinedTeams = await teams.list({ queries: [Query.equal('$id', [teamId]), Query.limit(1)] });
   if (!joinedTeams.teams?.some(team => team.$id === teamId)) throw new Error('Le praticien ne retrouve pas son équipe centre.');
@@ -49,7 +51,7 @@ try {
   try { await teams.updateMembership({ teamId, membershipId: membership.$id, roles: ['owner'] }); } catch { roleEscalationBlocked = true; }
   if (!centreUpdateBlocked || !roleEscalationBlocked) throw new Error(`Protection incomplète (centre=${centreUpdateBlocked}, rôles=${roleEscalationBlocked}).`);
 
-  console.log(JSON.stringify({ status: 'ok', member: user.name, centre: centre.name, teamResolved: true, roleResolved: true, memberProfilesHidden: true, centreUpdateBlocked, roleEscalationBlocked }));
+  console.log(JSON.stringify({ status: 'ok', member: user.name, memberEmail: user.email, centre: centre.name, teamResolved: true, roleResolved: true, memberProfilesHidden: true, centreUpdateBlocked, roleEscalationBlocked }));
 } finally {
   if (session?.$id) {
     try { cli(['users', 'delete-session', '--user-id', memberUserId, '--session-id', session.$id, '-R']); } catch {}
