@@ -1,4 +1,4 @@
-import { Account, Client, ID, Permission, Query, Role, Storage, TablesDB } from 'appwrite';
+import { Account, Client, ID, Permission, Query, Role, Storage, TablesDB, Teams } from 'appwrite';
 
 const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
 const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
@@ -9,8 +9,15 @@ const appwriteClient = new Client().setEndpoint(APPWRITE_ENDPOINT).setProject(AP
 const account = new Account(appwriteClient);
 const tables = new TablesDB(appwriteClient);
 const storage = new Storage(appwriteClient);
+const teams = new Teams(appwriteClient);
 let currentUser = null;
 let centreRow = null;
+let centreMembership = null;
+let centreMembers = [];
+
+const permissionKeys = ['dashboard', 'clients', 'practitioners', 'agenda', 'requests', 'billing', 'documents', 'statistics', 'settings'];
+const viewPermissionKeys = { today: 'dashboard', patients: 'clients', practitioners: 'practitioners', agenda: 'agenda', requests: 'requests', billing: 'billing', documents: 'documents', statistics: 'statistics', settings: 'settings', portal: 'clients' };
+const roleLabels = { 'yc-admin': 'Administrateur du centre', 'yc-accueil': 'Accueil', 'yc-comptabilite': 'Comptabilité', 'yc-praticien': 'Praticien', 'yc-personnalise': 'Personnalisé' };
 
 const views = {
   today: "Aujourd'hui",
@@ -38,9 +45,41 @@ const setupDefaults = {
   language: 'Français', timezone: 'Europe/Brussels', website: '', logo: '', locationName: 'Centre technique Z · Namur', roomCount: '4',
   openStart: '08:00', openEnd: '20:00', openingDays: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven'], clientsReady: false, calendarProvider: '', emailProvider: '', teamReady: false,
   billingReady: false, notificationsReady: false, termsReady: false
-  ,accessName: '', accessEmail: '', accessRole: 'Accueil', rolePermissions: { dashboard: 'edit', clients: 'view', practitioners: 'none', agenda: 'edit', requests: 'edit', billing: 'none', documents: 'view', statistics: 'none', settings: 'none' }
+  ,accessName: '', accessEmail: '', accessRole: 'Accueil', accessMembershipId: '', rolePermissions: { dashboard: 'edit', clients: 'view', practitioners: 'none', agenda: 'edit', requests: 'edit', billing: 'none', documents: 'view', statistics: 'none', settings: 'none' }
 };
 let setup = loadSetup();
+
+function roleSlug(label = 'Personnalisé') {
+  return ({ Accueil: 'yc-accueil', 'Administrateur du centre': 'yc-admin', 'Comptabilité': 'yc-comptabilite', Praticien: 'yc-praticien' })[label] || 'yc-personnalise';
+}
+
+function membershipRoles(label, permissions) {
+  return [roleSlug(label), ...permissionKeys.map(key => `p-${key}-${permissions[key] || 'none'}`)];
+}
+
+function membershipPermissions(membership = centreMembership) {
+  if (!membership || membership.roles?.includes('owner')) return Object.fromEntries(permissionKeys.map(key => [key, 'edit']));
+  return Object.fromEntries(permissionKeys.map(key => {
+    const role = membership.roles?.find(item => item.startsWith(`p-${key}-`));
+    return [key, role?.slice(`p-${key}-`.length) || 'none'];
+  }));
+}
+
+function currentRoleLabel(membership = centreMembership) {
+  if (!membership || membership.roles?.includes('owner')) return 'Administrateur du centre';
+  const role = membership.roles?.find(item => roleLabels[item]);
+  return roleLabels[role] || 'Accès personnalisé';
+}
+
+function accessLevel(view) {
+  if (view === 'access' || view === 'support') return 'view';
+  const key = viewPermissionKeys[view];
+  return key ? membershipPermissions()[key] : 'none';
+}
+
+function isCentreOwner() {
+  return currentUser?.$id === centreRow?.ownerId || centreMembership?.roles?.includes('owner');
+}
 
 function loadSetup() {
   try { return { ...setupDefaults, ...JSON.parse(localStorage.getItem(setupKey) || '{}') }; }
@@ -141,24 +180,41 @@ function centreData(status = centreRow?.status || 'draft') {
     createdAt: centreRow?.createdAt || now,
     updatedAt: now,
   };
+  if (centreRow?.teamId) data.teamId = centreRow.teamId;
   if (setup.website.trim()) data.website = setup.website.trim();
   return data;
 }
 
 async function persistCentre(status = centreRow?.status || 'draft') {
-  const data = centreData(status);
-  const validation = validateCentre({ ...setup, ...data, centreName: data.name });
+  const baseData = centreData(status);
+  const validation = validateCentre({ ...setup, ...baseData, centreName: baseData.name });
   if (validation) throw new Error(validation);
-  if (centreRow) {
-    centreRow = await tables.updateRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CENTRES_TABLE_ID, rowId: centreRow.$id, data });
-  } else {
-    centreRow = await tables.createRow({
-      databaseId: APPWRITE_DATABASE_ID,
-      tableId: APPWRITE_CENTRES_TABLE_ID,
-      rowId: ID.unique(),
-      data,
-      permissions: [Permission.read(Role.user(currentUser.$id)), Permission.update(Role.user(currentUser.$id)), Permission.delete(Role.user(currentUser.$id))],
-    });
+  let createdTeam = null;
+  if (!centreRow?.teamId) {
+    createdTeam = await teams.create({ teamId: ID.unique(), name: (setup.publicName || setup.centreName).trim(), roles: ['owner', 'yc-admin'] });
+  }
+  const data = { ...baseData, teamId: centreRow?.teamId || createdTeam.$id };
+  try {
+    if (centreRow) {
+      centreRow = await tables.updateRow({
+        databaseId: APPWRITE_DATABASE_ID,
+        tableId: APPWRITE_CENTRES_TABLE_ID,
+        rowId: centreRow.$id,
+        data,
+        ...(createdTeam ? { permissions: [Permission.read(Role.user(currentUser.$id)), Permission.read(Role.team(data.teamId)), Permission.update(Role.user(currentUser.$id)), Permission.delete(Role.user(currentUser.$id))] } : {}),
+      });
+    } else {
+      centreRow = await tables.createRow({
+        databaseId: APPWRITE_DATABASE_ID,
+        tableId: APPWRITE_CENTRES_TABLE_ID,
+        rowId: ID.unique(),
+        data,
+        permissions: [Permission.read(Role.user(currentUser.$id)), Permission.read(Role.team(data.teamId)), Permission.update(Role.user(currentUser.$id)), Permission.delete(Role.user(currentUser.$id))],
+      });
+    }
+  } catch (error) {
+    if (createdTeam) await teams.delete({ teamId: createdTeam.$id }).catch(() => {});
+    throw error;
   }
   applyCentreRow(centreRow);
   return centreRow;
@@ -269,9 +325,24 @@ function renderCentreOnboarding(message = '') {
 }
 
 async function loadCentre() {
-  const result = await tables.listRows({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CENTRES_TABLE_ID, queries: [Query.equal('ownerId', [currentUser.$id]), Query.limit(1)] });
-  centreRow = result.rows?.[0] || null;
-  if (centreRow) applyCentreRow(centreRow);
+  const owned = await tables.listRows({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CENTRES_TABLE_ID, queries: [Query.equal('ownerId', [currentUser.$id]), Query.limit(1)] });
+  centreRow = owned.rows?.[0] || null;
+  if (!centreRow) {
+    const memberships = await teams.list({ queries: [Query.limit(100)] });
+    const teamIds = memberships.teams?.map(team => team.$id) || [];
+    if (teamIds.length) {
+      const joined = await tables.listRows({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CENTRES_TABLE_ID, queries: [Query.equal('teamId', teamIds), Query.limit(1)] });
+      centreRow = joined.rows?.[0] || null;
+    }
+  }
+  if (centreRow) {
+    applyCentreRow(centreRow);
+    if (centreRow.teamId) {
+      const result = await teams.listMemberships({ teamId: centreRow.teamId, queries: [Query.limit(100)] });
+      centreMembers = result.memberships || [];
+      centreMembership = centreMembers.find(membership => membership.userId === currentUser.$id) || null;
+    }
+  }
   return centreRow;
 }
 
@@ -281,19 +352,26 @@ function openApplication() {
   const displayName = currentUser.name || currentUser.email;
   document.getElementById('currentUserName').textContent = displayName;
   document.getElementById('currentUserAvatar').textContent = displayName.trim().charAt(0).toUpperCase() || 'C';
-  document.getElementById('currentUserRole').textContent = 'Administrateur du centre';
+  document.getElementById('currentUserRole').textContent = currentRoleLabel();
+  applyNavigationPermissions();
   render(location.hash.slice(1) || 'today', false);
 }
 
 async function bootstrap() {
   try {
+    const invite = new URLSearchParams(location.search);
+    if (invite.get('teamId') && invite.get('membershipId') && invite.get('userId') && invite.get('secret')) {
+      await teams.updateMembershipStatus({ teamId: invite.get('teamId'), membershipId: invite.get('membershipId'), userId: invite.get('userId'), secret: invite.get('secret') });
+      history.replaceState({}, '', `${location.pathname}${location.hash || ''}`);
+    }
     currentUser = await account.get();
     await loadCentre();
-    if (!centreRow || centreRow.status !== 'active') return renderCentreOnboarding();
+    if (!centreRow) return renderCentreOnboarding('Aucun centre actif n’est encore rattaché à ce compte.');
+    if (centreRow.status !== 'active') return renderCentreOnboarding();
     openApplication();
-  } catch {
+  } catch (error) {
     document.body.classList.add('auth-pending');
-    renderAuthGate('login');
+    renderAuthGate('login', new URLSearchParams(location.search).get('secret') ? 'Cette invitation est invalide ou a déjà été utilisée.' : '');
   }
 }
 
@@ -323,6 +401,27 @@ function updateSetupProgress() {
   });
 }
 
+function applyNavigationPermissions() {
+  document.querySelectorAll('.nav-item[data-view]').forEach(button => {
+    button.hidden = accessLevel(button.dataset.view) === 'none';
+  });
+}
+
+function firstAccessibleView() {
+  return ['today', 'patients', 'practitioners', 'agenda', 'requests', 'billing', 'documents', 'statistics', 'portal', 'settings', 'access', 'support'].find(view => accessLevel(view) !== 'none') || 'support';
+}
+
+function applyViewPermission(view) {
+  const level = accessLevel(view);
+  content.dataset.accessLevel = level;
+  if (level !== 'view') return;
+  const notice = document.createElement('div');
+  notice.className = 'readonly-notice';
+  notice.textContent = '◉ Lecture seule · ton rôle permet de consulter cet onglet sans le modifier.';
+  content.prepend(notice);
+  content.querySelectorAll('input, textarea, select, button[data-action], button[data-setup-section], button[data-opening-day], button[data-provider-type], button[data-setup-toggle]').forEach(control => { control.disabled = true; });
+}
+
 function showToast(message) {
   toast.textContent = message;
   toast.classList.add('show');
@@ -332,6 +431,10 @@ function showToast(message) {
 
 function render(view, push = true) {
   if (!views[view]) view = 'today';
+  if (accessLevel(view) === 'none') {
+    view = firstAccessibleView();
+    showToast('Cet onglet n’est pas autorisé pour ton rôle.');
+  }
   const template = document.getElementById(`${view}-view`);
   content.replaceChildren(template.content.cloneNode(true));
   breadcrumb.textContent = views[view];
@@ -343,6 +446,7 @@ function render(view, push = true) {
   const displayName = currentUser?.name || currentUser?.email || 'Administrateur';
   if (view === 'today') document.getElementById('dashboardGreeting').textContent = `Bonjour ${displayName}.`;
   if (view === 'support') document.getElementById('supportGreeting').textContent = `Bonjour ${displayName},`;
+  applyViewPermission(view);
 }
 
 function field(label, name, value, type = 'text', extra = '') {
@@ -351,6 +455,39 @@ function field(label, name, value, type = 'text', extra = '') {
 
 function settingsHeader(title, text, badge = '') {
   return `<div class="settings-section-head"><div>${badge ? `<p class="eyebrow">${badge}</p>` : ''}<h2>${title}</h2><p>${text}</p></div></div>`;
+}
+
+function memberRoleLabel(member) {
+  if (member.roles?.includes('owner')) return 'Propriétaire du centre';
+  return currentRoleLabel(member);
+}
+
+function membersPanel() {
+  if (!centreMembers.length) return '<article class="panel member-empty"><p>Aucun accès supplémentaire.</p></article>';
+  return `<article class="panel member-list"><div class="panel-head"><div><h3>Accès existants</h3><p>${centreMembers.length} personne${centreMembers.length > 1 ? 's' : ''} rattachée${centreMembers.length > 1 ? 's' : ''} à ce centre.</p></div></div>${centreMembers.map(member => `<div class="member-row"><span class="avatar">${safeText((member.userName || member.userEmail || '?').charAt(0).toUpperCase())}</span><div><strong>${safeText(member.userName || 'Invitation')}</strong><small>${safeText(member.userEmail || '')}</small></div><span class="tag ${member.confirm ? 'mint-tag' : 'gold-tag'}">${member.confirm ? 'Actif' : 'Invitation envoyée'}</span><b>${safeText(memberRoleLabel(member))}</b>${member.roles?.includes('owner') ? '<em>Accès complet</em>' : `<div class="member-actions"><button class="outline" data-member-edit="${safeText(member.$id)}">Modifier</button><button class="text-button danger" data-member-remove="${safeText(member.$id)}">Retirer</button></div>`}</div>`).join('')}</article>`;
+}
+
+async function refreshCentreMembers() {
+  if (!centreRow?.teamId) return;
+  const result = await teams.listMemberships({ teamId: centreRow.teamId, queries: [Query.limit(100)] });
+  centreMembers = result.memberships || [];
+  centreMembership = centreMembers.find(membership => membership.userId === currentUser.$id) || centreMembership;
+}
+
+async function saveCentreAccess() {
+  if (!isCentreOwner()) throw new Error('Seul le propriétaire du centre peut gérer les accès.');
+  const accessName = document.querySelector('[name="accessName"]')?.value.trim() || '';
+  const accessEmail = document.querySelector('[name="accessEmail"]')?.value.trim().toLowerCase() || '';
+  if (!accessName || !accessEmail) throw new Error('Indique le nom et l’adresse e-mail de la personne.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(accessEmail)) throw new Error('Indique une adresse e-mail valide.');
+  const roles = membershipRoles(setup.accessRole, setup.rolePermissions);
+  if (setup.accessMembershipId) {
+    await teams.updateMembership({ teamId: centreRow.teamId, membershipId: setup.accessMembershipId, roles });
+  } else {
+    await teams.createMembership({ teamId: centreRow.teamId, roles, email: accessEmail, name: accessName, url: `${location.origin}${location.pathname}` });
+  }
+  await refreshCentreMembers();
+  saveSetup({ accessName: '', accessEmail: '', accessMembershipId: '', teamReady: true });
 }
 
 function renderSettings(section) {
@@ -382,9 +519,10 @@ function renderSettings(section) {
     connections: `${settingsHeader('Agenda et messagerie', 'Le centre relie ses outils existants. Les rendez-vous administratifs sont synchronisés, jamais le contenu clinique.', 'Étape 5')}
       <div class="connection-block panel"><div><h3>Agenda du centre</h3><p>Synchronisation bidirectionnelle des créneaux et rendez-vous du centre.</p></div><div class="provider-grid"><button data-provider-type="calendarProvider" data-provider="Google" class="${setup.calendarProvider === 'Google' ? 'selected' : ''}"><b>G</b> Google Calendar<small>${setup.calendarProvider === 'Google' ? 'Sélectionné' : 'Choisir'}</small></button><button data-provider-type="calendarProvider" data-provider="Microsoft" class="${setup.calendarProvider === 'Microsoft' ? 'selected' : ''}"><b>M</b> Microsoft Outlook<small>${setup.calendarProvider === 'Microsoft' ? 'Sélectionné' : 'Choisir'}</small></button></div></div>
       <div class="connection-block panel"><div><h3>Adresse d’envoi du centre</h3><p>Les confirmations et rappels partiront de l’adresse officielle du centre.</p></div><div class="provider-grid"><button data-provider-type="emailProvider" data-provider="Gmail" class="${setup.emailProvider === 'Gmail' ? 'selected' : ''}"><b>G</b> Gmail<small>${setup.emailProvider === 'Gmail' ? 'Sélectionné' : 'Choisir'}</small></button><button data-provider-type="emailProvider" data-provider="Microsoft" class="${setup.emailProvider === 'Microsoft' ? 'selected' : ''}"><b>M</b> Outlook / Microsoft 365<small>${setup.emailProvider === 'Microsoft' ? 'Sélectionné' : 'Choisir'}</small></button><button data-provider-type="emailProvider" data-provider="Autre" class="${setup.emailProvider === 'Autre' ? 'selected' : ''}"><b>@</b> OVH ou autre<small>${setup.emailProvider === 'Autre' ? 'Sélectionné' : 'Choisir'}</small></button></div></div><p class="setup-note">Dans cette maquette, le choix est mémorisé sans lancer une connexion réelle. Le raccordement OAuth sera réalisé dans la couche Appwrite.</p>`,
-    team: `${settingsHeader('Praticiens, utilisateurs et accès', 'Chaque personne reçoit un rôle. Les droits se règlent ensuite onglet par onglet : modifier, voir uniquement ou aucun accès.', 'Étape 6')}
-      <article class="panel technical-test"><span class="avatar violet">TC</span><div><h3>Praticien technique C</h3><p>Compte de test Yulyf disponible pour valider le lien contrôlé.</p></div><span class="tag mint-tag">Yulyf relié</span></article><div class="setup-two-cols"><article class="panel setup-choice"><h3>Praticien déjà sur Yulyf</h3><p>Il se connecte avec son compte personnel. Le centre reçoit uniquement ses présences, ses créneaux et ses clients rattachés au centre.</p><button class="primary" data-action="setup-team-ready">Inviter avec Yulyf</button></article><article class="panel setup-choice"><h3>Nouveau sur Yulyf</h3><p>Le centre crée une invitation. Le praticien choisira ensuite son mot de passe et ses accès.</p><button class="outline" data-action="setup-team-ready">Créer une invitation</button></article></div>
-      <article class="panel role-builder"><div class="role-builder-head"><div><h3>Créer un accès à l’application</h3><p>Renseigne la personne, choisis un rôle de départ puis adapte ses droits onglet par onglet.</p></div><label>Rôle de départ<select id="rolePreset"><option ${setup.accessRole === 'Accueil' ? 'selected' : ''}>Accueil</option><option ${setup.accessRole === 'Administrateur du centre' ? 'selected' : ''}>Administrateur du centre</option><option ${setup.accessRole === 'Comptabilité' ? 'selected' : ''}>Comptabilité</option><option ${setup.accessRole === 'Praticien' ? 'selected' : ''}>Praticien</option><option ${setup.accessRole === 'Personnalisé' ? 'selected' : ''}>Personnalisé</option></select></label></div><div class="access-identity">${field('Nom de la personne', 'accessName', setup.accessName, 'text', 'data-access-field')}${field('Adresse e-mail', 'accessEmail', setup.accessEmail, 'email', 'data-access-field')}</div><div class="permission-table"><div class="permission-row permission-head"><strong>Onglet</strong><span>Droit accordé</span></div>${permissionRows(setup.rolePermissions)}</div><div class="permission-legend"><span><i class="edit-dot"></i> Peut voir et interagir</span><span><i class="view-dot"></i> Lecture seule</span><span><i class="none-dot"></i> Onglet invisible</span></div><div class="role-builder-actions"><div class="role-lock">⚿ Valou · Supadmin + Support conserve toujours l’accès complet.</div><button class="primary" data-action="create-access-demo">Créer l’accès fictif</button></div></article>`,
+    team: `${settingsHeader('Praticiens, utilisateurs et accès', 'Les invitations et les droits sont appliqués par Appwrite au centre concerné. Chaque onglet peut être masqué, consultable ou modifiable.', 'Étape 6')}
+      <article class="panel technical-test"><span class="avatar violet">TC</span><div><h3>Praticien technique C</h3><p>Compte Yulyf réellement rattaché à l’équipe Appwrite de Centre technique Z.</p></div><span class="tag mint-tag">Accès actif</span></article>
+      ${membersPanel()}
+      <article class="panel role-builder"><div class="role-builder-head"><div><h3>${setup.accessMembershipId ? 'Modifier cet accès' : 'Inviter une personne'}</h3><p>Le lien reçu permet d’utiliser un compte Yulyf existant ou d’en créer un, sans ouvrir les données privées.</p></div><label>Rôle de départ<select id="rolePreset"><option ${setup.accessRole === 'Accueil' ? 'selected' : ''}>Accueil</option><option ${setup.accessRole === 'Administrateur du centre' ? 'selected' : ''}>Administrateur du centre</option><option ${setup.accessRole === 'Comptabilité' ? 'selected' : ''}>Comptabilité</option><option ${setup.accessRole === 'Praticien' ? 'selected' : ''}>Praticien</option><option ${setup.accessRole === 'Personnalisé' ? 'selected' : ''}>Personnalisé</option></select></label></div><div class="access-identity">${field('Nom de la personne', 'accessName', setup.accessName, 'text', 'data-access-field')}${field('Adresse e-mail', 'accessEmail', setup.accessEmail, 'email', `data-access-field ${setup.accessMembershipId ? 'readonly' : ''}`)}</div><div class="permission-table"><div class="permission-row permission-head"><strong>Onglet</strong><span>Droit accordé</span></div>${permissionRows(setup.rolePermissions)}</div><div class="permission-legend"><span><i class="edit-dot"></i> Peut voir et interagir</span><span><i class="view-dot"></i> Lecture seule</span><span><i class="none-dot"></i> Onglet invisible</span></div><div class="role-builder-actions"><div class="role-lock">⚿ Valou · Supadmin + Support conserve toujours l’accès complet.</div>${setup.accessMembershipId ? '<button class="outline" data-action="cancel-access-edit">Annuler</button>' : ''}<button class="primary" data-action="save-centre-access">${setup.accessMembershipId ? 'Enregistrer les droits' : 'Envoyer l’invitation'}</button></div></article>`,
     'billing-settings': `${settingsHeader('Facturation du centre', 'Les réglages administratifs du centre restent séparés de la facturation personnelle des praticiens.')}${simpleToggleCard('TVA, compte bancaire et numérotation des factures', 'billingReady', setup.billingReady)}`,
     notifications: `${settingsHeader('Notifications', 'Configure les confirmations, rappels de rendez-vous et messages administratifs.')}${simpleToggleCard('Rappels automatiques et e-mails du centre', 'notificationsReady', setup.notificationsReady)}`,
     subscription: `${settingsHeader('Abonnement YulyfCentre', 'L’abonnement et le nombre de praticiens seront contrôlés depuis BackofficeLYC.')}<article class="panel subscription-card"><div><small>BASE CENTRE</small><strong>33 € <em>/ mois</em></strong><p>+ 12 € / mois par praticien qui n’a pas déjà Yulyf</p></div><span class="tag gold-tag">Démonstration</span></article>`,
@@ -392,6 +530,7 @@ function renderSettings(section) {
   };
   pane.innerHTML = pages[section] || pages.overview;
   updateSetupProgress();
+  if (accessLevel('settings') === 'view') pane.querySelectorAll('input, textarea, select, button').forEach(control => { control.disabled = true; });
 }
 
 function simpleToggleCard(title, key, active) {
@@ -403,7 +542,7 @@ function permissionRows(permissions) {
   return Object.entries(labels).map(([key, label]) => `<div class="permission-row"><strong>${label}</strong><select data-role-permission="${key}"><option value="edit" ${permissions[key] === 'edit' ? 'selected' : ''}>Voir et interagir</option><option value="view" ${permissions[key] === 'view' ? 'selected' : ''}>Voir uniquement</option><option value="none" ${permissions[key] === 'none' ? 'selected' : ''}>Ne pas voir</option></select></div>`).join('');
 }
 
-document.addEventListener('click', event => {
+document.addEventListener('click', async event => {
   const authSwitch = event.target.closest('[data-auth-switch]');
   if (authSwitch) return renderAuthGate(authSwitch.dataset.authSwitch);
 
@@ -424,6 +563,29 @@ document.addEventListener('click', event => {
   const setupSection = event.target.closest('[data-setup-section]');
   if (setupSection) return renderSettings(setupSection.dataset.setupSection);
 
+  const memberEdit = event.target.closest('[data-member-edit]');
+  if (memberEdit) {
+    const member = centreMembers.find(item => item.$id === memberEdit.dataset.memberEdit);
+    if (!member) return showToast('Cet accès est introuvable.');
+    saveSetup({ accessMembershipId: member.$id, accessName: member.userName || '', accessEmail: member.userEmail || '', accessRole: currentRoleLabel(member), rolePermissions: membershipPermissions(member) });
+    renderSettings('team');
+    return;
+  }
+
+  const memberRemove = event.target.closest('[data-member-remove]');
+  if (memberRemove) {
+    const member = centreMembers.find(item => item.$id === memberRemove.dataset.memberRemove);
+    if (!member || !confirm(`Retirer l’accès de ${member.userName || member.userEmail} ?`)) return;
+    memberRemove.disabled = true;
+    try {
+      await teams.deleteMembership({ teamId: centreRow.teamId, membershipId: member.$id });
+      await refreshCentreMembers();
+      renderSettings('team');
+      showToast('Accès retiré du centre.');
+    } catch (error) { memberRemove.disabled = false; showToast(error.message || appwriteMessage(error)); }
+    return;
+  }
+
   const provider = event.target.closest('[data-provider-type]');
   if (provider) {
     saveSetup({ [provider.dataset.providerType]: provider.dataset.provider });
@@ -441,7 +603,7 @@ document.addEventListener('click', event => {
   const action = event.target.closest('[data-action]');
   if (!action) return;
   if (action.dataset.action === 'logout') {
-    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
+    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
   }
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',
@@ -465,8 +627,7 @@ document.addEventListener('click', event => {
     ,'grant-demo': 'Accès temporaire simulé. En production, il expirera automatiquement.'
     ,'add-location': 'Un second lieu pourra être ajouté dans la couche de données Appwrite.'
     ,'setup-manual-client': 'Client fictif préparé : seules les données administratives sont demandées.'
-    ,'setup-team-ready': 'Invitation de démonstration préparée. Aucun e-mail réel n’est envoyé.'
-    ,'create-access-demo': 'Accès fictif créé avec les droits sélectionnés. Aucun e-mail réel n’est envoyé.'
+    ,'setup-team-ready': 'Les accès sont maintenant gérés dans le formulaire ci-dessous.'
   };
   if (action.dataset.action === 'remove-centre-logo') {
     action.disabled = true;
@@ -474,12 +635,20 @@ document.addEventListener('click', event => {
   }
   if (action.dataset.action === 'setup-manual-client') saveSetup({ clientsReady: true });
   if (action.dataset.action === 'setup-team-ready') saveSetup({ teamReady: true });
-  if (action.dataset.action === 'create-access-demo') {
-    const accessName = document.querySelector('[name="accessName"]')?.value.trim() || '';
-    const accessEmail = document.querySelector('[name="accessEmail"]')?.value.trim() || '';
-    if (!accessName || !accessEmail) return showToast('Indique le nom et l’adresse e-mail de la personne.');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(accessEmail)) return showToast('Indique une adresse e-mail valide.');
-    saveSetup({ accessName, accessEmail, teamReady: true });
+  if (action.dataset.action === 'cancel-access-edit') {
+    saveSetup({ accessName: '', accessEmail: '', accessMembershipId: '', accessRole: 'Accueil', rolePermissions: { ...setupDefaults.rolePermissions } });
+    renderSettings('team');
+    return;
+  }
+  if (action.dataset.action === 'save-centre-access') {
+    action.disabled = true;
+    try {
+      const wasEditing = Boolean(setup.accessMembershipId);
+      await saveCentreAccess();
+      renderSettings('team');
+      showToast(wasEditing ? 'Droits enregistrés dans Appwrite.' : 'Invitation réelle envoyée par e-mail.');
+    } catch (error) { action.disabled = false; showToast(error.message || appwriteMessage(error)); }
+    return;
   }
   showToast(messages[action.dataset.action] || 'Action de démonstration.');
 });
@@ -539,8 +708,8 @@ document.addEventListener('change', async event => {
   }
   if (event.target.dataset.rolePermission) {
     const rolePermissions = { ...setup.rolePermissions, [event.target.dataset.rolePermission]: event.target.value };
-    saveSetup({ rolePermissions, teamReady: true });
-    return showToast('Droit du rôle enregistré dans la démonstration.');
+    saveSetup({ rolePermissions, accessRole: 'Personnalisé', teamReady: true });
+    return showToast('Droit personnalisé prêt à enregistrer.');
   }
   if (event.target.id === 'centreLogoInput') {
     const file = event.target.files?.[0];
