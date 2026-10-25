@@ -1,9 +1,9 @@
 import { Account, Client, ID, Permission, Query, Role, TablesDB } from 'appwrite';
 
 const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
-const APPWRITE_PROJECT_ID = 'yulyf-centre';
-const APPWRITE_DATABASE_ID = 'yulyf-centre';
-const APPWRITE_CENTRES_TABLE_ID = 'centres';
+const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
+const APPWRITE_DATABASE_ID = 'lyc';
+const APPWRITE_CENTRES_TABLE_ID = 'yulyf_centres';
 const appwriteClient = new Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID);
 const account = new Account(appwriteClient);
 const tables = new TablesDB(appwriteClient);

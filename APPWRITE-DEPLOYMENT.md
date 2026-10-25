@@ -1,22 +1,21 @@
 # Déploiement Appwrite — YulyfCentre
 
-## Environnement fonctionnel dédié
+## Environnement fonctionnel dans LYC
 
-- Projet Appwrite : `yulyf-centre`
-- Nom du projet : `YulyfCentre`
+- Projet Appwrite LYC : `6aa80924002a9a6b3cf7`
+- Nom affiché actuellement dans Appwrite : `My first project`
 - Région : `fra`
-- Base TablesDB : `yulyf-centre`
-- Table de la première couche : `centres`
+- Base TablesDB : `lyc`
+- Table dédiée de la première couche : `yulyf_centres`
 - Site Appwrite : `yulyf-centre`
 - Domaine stable : `https://yulyf-centre.appwrite.network/`
 - Répertoire publié : `dist/`
-- Déploiement prêt : `6ade2d6d685f45c5375a`
-- Statut contrôlé le 25/10/2026 : `Ready` (en attente de l’activation par Valou)
+- Déploiement : activation automatique à la fin du build (`--activate`)
 
 La première couche fonctionnelle permet de créer un compte centre, d’enregistrer
 un brouillon, puis d’activer l’espace. Chaque ligne de centre est protégée par des
-permissions Appwrite réservées à son propriétaire authentifié. Les méthodes
-d’authentification non utilisées sont désactivées.
+permissions Appwrite réservées à son propriétaire authentifié. La table est
+isolée des tables historiques `records` et `admin_records` de LYC.
 
 ## Ancien aperçu statique
 
@@ -26,4 +25,4 @@ d’authentification non utilisées sont désactivées.
 - Déploiement historique actif : `6ad9f73e65186cf39978`
 
 Cet ancien aperçu est conservé uniquement comme référence visuelle. Le
-développement fonctionnel se poursuit sur l’environnement dédié ci-dessus.
+développement fonctionnel se poursuit sur le site YulyfCentre du projet LYC.
