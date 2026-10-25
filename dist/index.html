@@ -8,6 +8,7 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>YulyfCentre — Projet en construction</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="settings.css">
 </head>
 <body>
   <div class="demo-banner">
@@ -39,6 +40,7 @@
         <button class="nav-item" data-view="documents"><span>▱</span>Documents</button>
         <button class="nav-item" data-view="statistics"><span>▥</span>Statistiques</button>
         <button class="nav-item" data-view="portal"><span>◫</span>Aperçu portail client</button>
+        <button class="nav-item" data-view="settings"><span>⚙</span>Paramètres du centre</button>
         <button class="nav-item" data-view="access"><span>⚿</span>Accès & confidentialité</button>
         <button class="nav-item support-nav" data-view="support"><span>✦</span>Support technique</button>
       </nav>
@@ -181,6 +183,34 @@
     </div>
     <div class="role-grid"><article class="panel role-card"><span>V</span><div><h3>Valou</h3><p>Supadmin + Support</p></div><b>Accès complet d'administration</b></article><article class="panel role-card"><span>AD</span><div><h3>Administrateur du centre</h3><p>Gestion du centre</p></div><b>Administratif du centre uniquement</b></article><article class="panel role-card"><span>AC</span><div><h3>Accueil</h3><p>Secrétariat</p></div><b>Agenda, contacts et demandes</b></article><article class="panel role-card"><span>PR</span><div><h3>Praticien</h3><p>Professionnel</p></div><b>Ses clients et son espace privé</b></article></div>
     <article class="panel backoffice-link"><div class="backoffice-logo">LYC</div><div><p class="eyebrow">Gouvernance Yulyf</p><h2>Connexion à BackofficeLYC</h2><p>BackofficeLYC pilote les centres, abonnements, essais, quotas, support, diagnostics, scans de sécurité et éléments Tools. Il ne donne pas au personnel du centre l'accès aux dossiers médicaux.</p></div><div class="backoffice-status"><span>● Liaison prévue</span><small>Prochaine couche : contrat d'échange sécurisé</small></div></article>
+  </template>
+
+  <template id="settings-view">
+    <div class="page-head settings-heading">
+      <div><p class="eyebrow">Création et configuration</p><h1>Paramètres du centre</h1><p>Le parcours complet repris de Yulyf, adapté à une structure multidisciplinaire.</p></div>
+      <span class="setup-save-state" id="setupSaveState">✓ Enregistré dans cette démonstration</span>
+    </div>
+    <div class="setup-progress panel">
+      <div><span id="setupProgressRing">0%</span></div>
+      <div><strong>Créer l’espace Centre Horizon</strong><p id="setupProgressText">Complète les étapes essentielles avant l’activation.</p></div>
+      <button class="primary" data-setup-section="overview">Voir le parcours</button>
+    </div>
+    <div class="settings-shell">
+      <aside class="settings-nav" aria-label="Rubriques des paramètres">
+        <button class="active" data-setup-section="overview"><span>✓</span><div><strong>Création de l’espace</strong><small>Parcours guidé</small></div></button>
+        <button data-setup-section="identity"><span>⌂</span><div><strong>Identité du centre</strong><small>Coordonnées et identité légale</small></div></button>
+        <button data-setup-section="branding"><span>◉</span><div><strong>Logo et apparence</strong><small>Portail, e-mails et factures</small></div></button>
+        <button data-setup-section="locations"><span>⌖</span><div><strong>Lieux et horaires</strong><small>Adresses, salles et ouvertures</small></div></button>
+        <button data-setup-section="clients"><span>♙</span><div><strong>Clients du centre</strong><small>Ajout manuel et import</small></div></button>
+        <button data-setup-section="connections"><span>↔</span><div><strong>Agenda et messagerie</strong><small>Google, Microsoft ou autre</small></div></button>
+        <button data-setup-section="team"><span>♧</span><div><strong>Praticiens et accès</strong><small>Invitations et rôles</small></div></button>
+        <button data-setup-section="billing-settings"><span>€</span><div><strong>Facturation</strong><small>TVA, banque et numérotation</small></div></button>
+        <button data-setup-section="notifications"><span>♢</span><div><strong>Notifications</strong><small>Rappels et e-mails</small></div></button>
+        <button data-setup-section="subscription"><span>▤</span><div><strong>Abonnement</strong><small>Plan et praticiens actifs</small></div></button>
+        <button data-setup-section="terms"><span>⚿</span><div><strong>Conditions et consentements</strong><small>Documents légaux du centre</small></div></button>
+      </aside>
+      <div class="settings-pane" id="settingsPane"></div>
+    </div>
   </template>
 
   <template id="support-view">
