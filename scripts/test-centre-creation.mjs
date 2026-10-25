@@ -42,7 +42,8 @@ function assertSourceContracts() {
     ['accès direct aux paramètres', /data-action="complete-centre-profile"/],
     ['signal doré dans la navigation', /settingsAttention/],
     ['nom public distinct du nom administratif', /'publicName', setup\.publicName/],
-    ['effacement du site internet pris en charge', /website: setup\.website\.trim\(\)/],
+    ['site internet sans protocole accepté', /website: normalizeWebsite\(setup\.website\)/],
+    ['protocole sécurisé ajouté automatiquement', /`https:\/\/\$\{website\}`/],
   ];
   for (const [label, pattern] of contracts) {
     if (!pattern.test(source)) throw new Error(`Contrat absent : ${label}.`);
