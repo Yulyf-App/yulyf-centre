@@ -9,8 +9,11 @@
 - Table dédiée de la première couche : `yulyf_centres`
 - Site Appwrite : `yulyf-centre`
 - Domaine stable : `https://yulyf-centre.appwrite.network/`
+- Lien de suivi GitHub Pages : `https://yulyf-app.github.io/yulyf-centre/`
 - Répertoire publié : `dist/`
 - Déploiement : activation automatique à la fin du build (`--activate`)
+- Déploiement actif contrôlé : `6ade2f179ed624afb511`
+- Règle de domaine vérifiée : `85550227b5626fd79a788548c73b1ef5`
 
 La première couche fonctionnelle permet de créer un compte centre, d’enregistrer
 un brouillon, puis d’activer l’espace. Chaque ligne de centre est protégée par des
