@@ -215,7 +215,9 @@ async function loadCentre() {
 function openApplication() {
   document.getElementById('authGate').hidden = true;
   document.body.classList.remove('auth-pending');
-  document.getElementById('currentUserName').textContent = currentUser.name || currentUser.email;
+  const displayName = currentUser.name || currentUser.email;
+  document.getElementById('currentUserName').textContent = displayName;
+  document.getElementById('currentUserAvatar').textContent = displayName.trim().charAt(0).toUpperCase() || 'C';
   document.getElementById('currentUserRole').textContent = 'Administrateur du centre';
   render(location.hash.slice(1) || 'today', false);
 }
@@ -275,6 +277,9 @@ function render(view, push = true) {
   if (push) history.pushState({ view }, '', `#${view}`);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (view === 'settings') renderSettings('overview');
+  const displayName = currentUser?.name || currentUser?.email || 'Administrateur';
+  if (view === 'today') document.getElementById('dashboardGreeting').textContent = `Bonjour ${displayName}.`;
+  if (view === 'support') document.getElementById('supportGreeting').textContent = `Bonjour ${displayName},`;
 }
 
 function field(label, name, value, type = 'text', extra = '') {
