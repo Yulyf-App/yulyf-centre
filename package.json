@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "check": "node --check dist/app.js && node --check build.mjs && node --check scripts/test-branding.mjs && node --check scripts/test-roles.mjs && node --check scripts/test-centre-creation.mjs",
+    "check": "node --check dist/app.js && node --check dist/website.js && node --check build.mjs && node --check scripts/test-branding.mjs && node --check scripts/test-roles.mjs && node --check scripts/test-centre-creation.mjs",
     "test:branding": "node scripts/test-branding.mjs",
     "test:roles": "node scripts/test-roles.mjs",
     "test:centre": "node scripts/test-centre-creation.mjs"

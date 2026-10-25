@@ -1,4 +1,5 @@
 import { Account, Client, ID, Permission, Query, Role, Storage, TablesDB, Teams } from 'appwrite';
+import { normalizeWebsite, validWebsite } from './website.js';
 
 const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
 const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
@@ -152,18 +153,6 @@ function renderAuthGate(mode = 'login', message = '') {
     <button class="auth-switch" data-auth-switch="${mode === 'register' ? 'login' : 'register'}">${mode === 'register' ? 'J’ai déjà un espace centre' : 'Créer un nouvel espace centre'}</button>
     <small class="auth-security">⚿ Environnement Appwrite européen · aucune donnée médicale demandée</small>
   </section>`;
-}
-
-function validWebsite(value) {
-  if (!value) return true;
-  try { return ['http:', 'https:'].includes(new URL(value).protocol); }
-  catch { return false; }
-}
-
-function normalizeWebsite(value) {
-  const website = String(value || '').trim();
-  if (!website) return '';
-  return /^[a-z][a-z\d+.-]*:\/\//i.test(website) ? website : `https://${website}`;
 }
 
 function validateCentre(data) {

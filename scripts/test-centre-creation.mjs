@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { Account, Client, ID, Permission, Query, Role, TablesDB, Teams } from 'appwrite';
+import { normalizeWebsite, validWebsite } from '../dist/website.js';
 
 const endpoint = 'https://fra.cloud.appwrite.io/v1';
 const projectId = '6aa80924002a9a6b3cf7';
@@ -43,15 +44,22 @@ function assertSourceContracts() {
     ['signal doré dans la navigation', /settingsAttention/],
     ['nom public distinct du nom administratif', /'publicName', setup\.publicName/],
     ['site internet sans protocole accepté', /website: normalizeWebsite\(setup\.website\)/],
-    ['protocole sécurisé ajouté automatiquement', /`https:\/\/\$\{website\}`/],
   ];
   for (const [label, pattern] of contracts) {
     if (!pattern.test(source)) throw new Error(`Contrat absent : ${label}.`);
   }
 }
 
+function assertWebsiteNormalization() {
+  const normalized = normalizeWebsite('WWW.TESTENFLEUR.BE');
+  if (normalized !== 'https://WWW.TESTENFLEUR.BE') throw new Error('Le site sans protocole ne reçoit pas automatiquement https.');
+  if (!validWebsite(normalized)) throw new Error('Le site normalisé est refusé par la validation.');
+  if (normalizeWebsite('') !== '') throw new Error('Le site facultatif ne peut pas être effacé.');
+}
+
 try {
   assertSourceContracts();
+  assertWebsiteNormalization();
   cli(['users', 'create', '--user-id', ownerId, '--email', ownerEmail, '--password', password, '--name', 'Centre temporaire', '-R']);
   cli(['users', 'create', '--user-id', outsiderId, '--email', outsiderEmail, '--password', password, '--name', 'Utilisateur extérieur', '-R']);
   ownerSession = cli(['users', 'create-session', '--user-id', ownerId, '--show-secrets', '-R']);
