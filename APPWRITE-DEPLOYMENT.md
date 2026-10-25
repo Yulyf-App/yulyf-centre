@@ -12,13 +12,26 @@
 - Lien de suivi GitHub Pages : `https://yulyf-app.github.io/yulyf-centre/`
 - Répertoire publié : `dist/`
 - Déploiement : activation automatique à la fin du build (`--activate`)
-- Déploiement actif contrôlé : `6ade2f179ed624afb511`
+- Déploiement actif contrôlé : `6ade3687407daabdda5e`
 - Règle de domaine vérifiée : `85550227b5626fd79a788548c73b1ef5`
 
 La première couche fonctionnelle permet de créer un compte centre, d’enregistrer
 un brouillon, puis d’activer l’espace. Chaque ligne de centre est protégée par des
 permissions Appwrite réservées à son propriétaire authentifié. La table est
 isolée des tables historiques `records` et `admin_records` de LYC.
+
+## Couche logo et identité visuelle
+
+- Bucket : `yulyf_centre_branding`
+- Taille maximale : 150 Ko
+- Formats : PNG, JPG, JPEG et WEBP
+- Chiffrement, antivirus et suppression des métadonnées activés
+- Remplacement et suppression réservés au propriétaire du centre
+- Lecture publique des fichiers, car les logos identifient publiquement les
+  centre dans son portail, ses e-mails administratifs et ses factures
+- Champs centre : `logoFileId` et `brandUpdatedAt`
+- Remplacement transactionnel : le nouveau fichier est rattaché avant que
+  l’ancien soit supprimé ; un échec de rattachement supprime le nouveau fichier
 
 ## Ancien aperçu statique
 

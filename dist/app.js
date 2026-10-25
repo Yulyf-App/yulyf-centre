@@ -1,12 +1,14 @@
-import { Account, Client, ID, Permission, Query, Role, TablesDB } from 'appwrite';
+import { Account, Client, ID, Permission, Query, Role, Storage, TablesDB } from 'appwrite';
 
 const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
 const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
 const APPWRITE_DATABASE_ID = 'lyc';
 const APPWRITE_CENTRES_TABLE_ID = 'yulyf_centres';
+const APPWRITE_BRANDING_BUCKET_ID = 'yulyf_centre_branding';
 const appwriteClient = new Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID);
 const account = new Account(appwriteClient);
 const tables = new TablesDB(appwriteClient);
+const storage = new Storage(appwriteClient);
 let currentUser = null;
 let centreRow = null;
 
@@ -51,6 +53,21 @@ function saveSetup(patch = {}) {
   const state = document.getElementById('setupSaveState');
   if (state) { state.textContent = '✓ Enregistré dans cette démonstration'; state.classList.add('saved'); }
   updateSetupProgress();
+}
+
+function centreInitials() {
+  return (setup.publicName || setup.centreName || 'YC').split(/\s+/).filter(Boolean).map(part => part[0]).join('').slice(0, 2).toUpperCase();
+}
+
+function logoView(fileId = centreRow?.logoFileId) {
+  return fileId ? String(storage.getFileView({ bucketId: APPWRITE_BRANDING_BUCKET_ID, fileId })) : '';
+}
+
+function applyCentreBranding() {
+  const avatar = document.querySelector('.centre-switcher .avatar');
+  if (!avatar) return;
+  avatar.innerHTML = setup.logo ? `<img src="${safeText(setup.logo)}" alt="">` : safeText(centreInitials());
+  avatar.classList.toggle('has-centre-logo', Boolean(setup.logo));
 }
 
 function safeText(value) {
@@ -166,10 +183,56 @@ function applyCentreRow(row) {
     openStart: row.openStart,
     openEnd: row.openEnd,
     openingDays: row.openingDays || [],
+    logo: logoView(row.logoFileId),
   });
   document.querySelector('.centre-switcher strong').textContent = row.publicName || row.name;
   document.querySelector('.centre-switcher small').textContent = row.status === 'active' ? 'Espace actif' : 'Configuration en cours';
-  document.querySelector('.centre-switcher .avatar').textContent = (row.publicName || row.name).split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase();
+  applyCentreBranding();
+}
+
+async function uploadCentreLogo(file) {
+  if (!centreRow) throw new Error('Le centre doit être créé avant d’ajouter son logo.');
+  const previousFileId = centreRow.logoFileId || '';
+  const uploaded = await storage.createFile({
+    bucketId: APPWRITE_BRANDING_BUCKET_ID,
+    fileId: ID.unique(),
+    file,
+    permissions: [
+      Permission.read(Role.any()),
+      Permission.update(Role.user(currentUser.$id)),
+      Permission.delete(Role.user(currentUser.$id)),
+    ],
+  });
+  try {
+    centreRow = await tables.updateRow({
+      databaseId: APPWRITE_DATABASE_ID,
+      tableId: APPWRITE_CENTRES_TABLE_ID,
+      rowId: centreRow.$id,
+      data: { logoFileId: uploaded.$id, brandUpdatedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    });
+  } catch (error) {
+    await storage.deleteFile({ bucketId: APPWRITE_BRANDING_BUCKET_ID, fileId: uploaded.$id }).catch(() => {});
+    throw error;
+  }
+  if (previousFileId && previousFileId !== uploaded.$id) {
+    await storage.deleteFile({ bucketId: APPWRITE_BRANDING_BUCKET_ID, fileId: previousFileId }).catch(() => {});
+  }
+  saveSetup({ logo: logoView(uploaded.$id) });
+  applyCentreBranding();
+}
+
+async function removeCentreLogo() {
+  if (!centreRow?.logoFileId) return;
+  const previousFileId = centreRow.logoFileId;
+  centreRow = await tables.updateRow({
+    databaseId: APPWRITE_DATABASE_ID,
+    tableId: APPWRITE_CENTRES_TABLE_ID,
+    rowId: centreRow.$id,
+    data: { logoFileId: '', brandUpdatedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  });
+  saveSetup({ logo: '' });
+  applyCentreBranding();
+  await storage.deleteFile({ bucketId: APPWRITE_BRANDING_BUCKET_ID, fileId: previousFileId }).catch(() => {});
 }
 
 function renderCentreOnboarding(message = '') {
@@ -309,8 +372,8 @@ function renderSettings(section) {
       <div class="privacy-callout compact"><div class="shield">✓</div><div><strong>Limite appliquée dès l’import</strong><p>Le centre ne reçoit que le nom, l’adresse, l’e-mail, le téléphone et le rattachement administratif. Les notes, analyses, consentements et documents médicaux sont exclus.</p></div></div>`,
     identity: `${settingsHeader('Identité du centre', 'Ces informations sont enregistrées dans Appwrite et alimentent le portail client, les e-mails administratifs et la facturation.', 'Étape 1')}
       <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom public du centre *', 'centreName', setup.centreName)}${field('E-mail principal *', 'email', setup.email, 'email')}${field('Téléphone *', 'phone', setup.phone, 'tel')}${field('Site internet', 'website', setup.website, 'url')}${field('Raison sociale', 'company', setup.company)}${field('N° d’entreprise / TVA', 'vat', setup.vat)}${field('Adresse *', 'address', setup.address)}${field('Code postal', 'postal', setup.postal)}${field('Ville *', 'city', setup.city)}${field('Pays', 'country', setup.country)}</div><div class="setup-grid compact-grid"><label class="setup-field"><span>Langue</span><select name="language"><option ${setup.language === 'Français' ? 'selected' : ''}>Français</option><option ${setup.language === 'Nederlands' ? 'selected' : ''}>Nederlands</option><option ${setup.language === 'English' ? 'selected' : ''}>English</option></select></label><label class="setup-field"><span>Fuseau horaire</span><select name="timezone"><option ${setup.timezone === 'Europe/Brussels' ? 'selected' : ''}>Europe/Brussels</option><option ${setup.timezone === 'Europe/Paris' ? 'selected' : ''}>Europe/Paris</option><option ${setup.timezone === 'Europe/Luxembourg' ? 'selected' : ''}>Europe/Luxembourg</option></select></label></div><div class="form-actions"><span class="setup-live-status">${centreRow?.status === 'active' ? '● Espace actif' : '● Brouillon'}</span><button class="primary" type="submit">Enregistrer dans Appwrite</button></div></form>`,
-    branding: `${settingsHeader('Logo et apparence', 'Comme dans Yulyf, le logo est prévisualisé avant son enregistrement.', 'Étape 2')}
-      <div class="panel branding-setup"><label class="logo-drop"><span>◉</span><div><strong>Choisir ou remplacer le logo</strong><small>PNG, JPG ou WEBP · 150 Ko maximum</small></div><input id="centreLogoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><div class="logo-preview ${setup.logo ? 'has-logo' : ''}">${setup.logo ? `<img src="${setup.logo}" alt="Logo du centre">` : '<span>CZ</span>'}<div><strong>Aperçu du portail client</strong><small>${setup.centreName}</small></div></div>${setup.logo ? '<button class="outline" data-action="remove-centre-logo">Retirer le logo</button>' : ''}<p class="setup-note">Le même visuel sera utilisé dans le portail, les e-mails administratifs et les factures du centre.</p></div>`,
+    branding: `${settingsHeader('Logo et apparence', 'Le logo est contrôlé, prévisualisé puis enregistré dans l’espace sécurisé du centre.', 'Étape 2')}
+      <div class="panel branding-setup"><label class="logo-drop"><span>◉</span><div><strong>${setup.logo ? 'Remplacer le logo' : 'Choisir le logo du centre'}</strong><small>PNG, JPG ou WEBP · 150 Ko maximum · métadonnées retirées</small></div><input id="centreLogoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><div class="logo-preview ${setup.logo ? 'has-logo' : ''}">${setup.logo ? `<img src="${safeText(setup.logo)}" alt="Logo de ${safeText(setup.centreName)}">` : `<span>${safeText(centreInitials())}</span>`}<div><strong>Aperçu de l’identité du centre</strong><small>${safeText(setup.centreName)}</small><em>${setup.logo ? 'Logo enregistré dans Appwrite' : 'Initiales utilisées tant qu’aucun logo n’est ajouté'}</em></div></div>${setup.logo ? '<button class="outline" data-action="remove-centre-logo">Retirer définitivement le logo</button>' : ''}<p class="setup-note">Ce logo public identifiera le centre dans YulyfCentre, puis dans son portail client, ses e-mails administratifs et ses factures. Seul un administrateur du centre peut le remplacer ou le supprimer.</p></div>`,
     locations: `${settingsHeader('Lieux et horaires d’activité', 'Ajoute l’adresse principale, le nombre de salles et les heures d’ouverture.', 'Étape 3')}
       <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName)}${field('Nombre de salles', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Ouverture', 'openStart', setup.openStart, 'time')}${field('Fermeture', 'openEnd', setup.openEnd, 'time')}</div><div class="weekday-picker"><span>Jours d’ouverture</span>${['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(day => `<button type="button" data-opening-day="${day}" class="${setup.openingDays.includes(day) ? 'selected' : ''}">${day}</button>`).join('')}</div><div class="form-actions"><button type="button" class="outline" data-action="add-location">＋ Ajouter un autre lieu</button><button class="primary" type="submit">Enregistrer dans Appwrite</button></div></form>`,
     clients: `${settingsHeader('Clients du centre', 'Crée un client manuellement ou importe une liste existante. Rien n’est enregistré avant confirmation.', 'Étape 4')}
@@ -405,7 +468,10 @@ document.addEventListener('click', event => {
     ,'setup-team-ready': 'Invitation de démonstration préparée. Aucun e-mail réel n’est envoyé.'
     ,'create-access-demo': 'Accès fictif créé avec les droits sélectionnés. Aucun e-mail réel n’est envoyé.'
   };
-  if (action.dataset.action === 'remove-centre-logo') { saveSetup({ logo: '' }); renderSettings('branding'); return showToast('Logo retiré de la démonstration.'); }
+  if (action.dataset.action === 'remove-centre-logo') {
+    action.disabled = true;
+    return removeCentreLogo().then(() => { renderSettings('branding'); showToast('Logo retiré de YulyfCentre et supprimé du stockage.'); }).catch(error => { action.disabled = false; showToast(error.message || appwriteMessage(error)); });
+  }
   if (action.dataset.action === 'setup-manual-client') saveSetup({ clientsReady: true });
   if (action.dataset.action === 'setup-team-ready') saveSetup({ teamReady: true });
   if (action.dataset.action === 'create-access-demo') {
@@ -455,7 +521,7 @@ document.addEventListener('submit', async event => {
   catch (error) { showToast(error.message || appwriteMessage(error)); }
 });
 
-document.addEventListener('change', event => {
+document.addEventListener('change', async event => {
   if (event.target.id === 'rolePreset') {
     const presets = {
       'Accueil': { dashboard: 'edit', clients: 'view', practitioners: 'none', agenda: 'edit', requests: 'edit', billing: 'none', documents: 'view', statistics: 'none', settings: 'none' },
@@ -481,9 +547,17 @@ document.addEventListener('change', event => {
     if (!file) return;
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return showToast('Format refusé : utilise PNG, JPG ou WEBP.');
     if (file.size > 150000) return showToast('Le logo doit peser moins de 150 Ko.');
-    const reader = new FileReader();
-    reader.onload = () => { saveSetup({ logo: String(reader.result) }); renderSettings('branding'); showToast('Logo ajouté à la démonstration.'); };
-    reader.readAsDataURL(file);
+    const picker = event.target.closest('.logo-drop');
+    picker?.classList.add('uploading');
+    try {
+      await uploadCentreLogo(file);
+      renderSettings('branding');
+      showToast('Logo enregistré dans Appwrite et appliqué au centre.');
+    } catch (error) {
+      picker?.classList.remove('uploading');
+      showToast(error.message || appwriteMessage(error));
+    }
+    return;
   }
   if (event.target.id === 'centreClientsInput') {
     const file = event.target.files?.[0];
