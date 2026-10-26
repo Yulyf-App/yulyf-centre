@@ -5,6 +5,7 @@ const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
 const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
 const APPWRITE_DATABASE_ID = 'lyc';
 const APPWRITE_CENTRES_TABLE_ID = 'yulyf_centres';
+const APPWRITE_LOCATIONS_TABLE_ID = 'yulyf_centre_locations';
 const APPWRITE_MEMBER_PROFILES_TABLE_ID = 'yulyf_centre_member_profiles';
 const APPWRITE_BRANDING_BUCKET_ID = 'yulyf_centre_branding';
 const appwriteClient = new Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID);
@@ -17,6 +18,8 @@ let centreRow = null;
 let centreMembership = null;
 let centreMembers = [];
 let centreMemberProfiles = [];
+let centreLocations = [];
+let editingLocationId = '';
 
 const permissionKeys = ['dashboard', 'clients', 'practitioners', 'agenda', 'requests', 'billing', 'documents', 'statistics', 'settings'];
 const viewPermissionKeys = { today: 'dashboard', patients: 'clients', practitioners: 'practitioners', agenda: 'agenda', requests: 'requests', billing: 'billing', documents: 'documents', statistics: 'statistics', settings: 'settings', portal: 'clients' };
@@ -45,7 +48,7 @@ const setupKey = 'yulyf-centre-setup-v2';
 const setupDefaults = {
   centreName: 'Centre technique Z', publicName: 'Centre technique Z', email: 'centre-technique-z@example.test', phone: '+32 81 00 00 00',
   company: 'Centre technique Z', vat: 'BE 0000.000.000', address: 'Adresse fictive de démonstration', postal: '5000', city: 'Namur', country: 'Belgique',
-  language: 'Français', timezone: 'Europe/Brussels', website: '', logo: '', locationName: 'Centre technique Z · Namur', roomCount: '4',
+  language: 'Français', timezone: 'Europe/Brussels', website: '', logo: '', locationName: 'Centre technique Z · Namur', locationAddress: 'Adresse fictive de démonstration', locationPostal: '5000', locationCity: 'Namur', locationCountry: 'Belgique', roomCount: '4',
   openStart: '08:00', openEnd: '20:00', openingDays: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven'], clientsReady: false, calendarProvider: '', emailProvider: '', teamReady: false,
   billingReady: false, notificationsReady: false, termsReady: false
   ,accessName: '', accessEmail: '', accessRole: 'Accueil', accessMembershipId: '', rolePermissions: { dashboard: 'edit', clients: 'view', practitioners: 'none', agenda: 'edit', requests: 'edit', billing: 'none', documents: 'view', statistics: 'none', settings: 'none' }
@@ -92,7 +95,7 @@ function loadSetup() {
 function newCentreSetup(email) {
   return {
     centreName: '', publicName: '', email, phone: '', company: '', vat: '', website: '', address: '', postal: '', city: '', country: 'Belgique',
-    language: 'Français', timezone: 'Europe/Brussels', logo: '', locationName: '', roomCount: '', openStart: '', openEnd: '', openingDays: [],
+    language: 'Français', timezone: 'Europe/Brussels', logo: '', locationName: '', locationAddress: '', locationPostal: '', locationCity: '', locationCountry: 'Belgique', roomCount: '', openStart: '', openEnd: '', openingDays: [],
     clientsReady: false, calendarProvider: '', emailProvider: '', teamReady: false, billingReady: false, notificationsReady: false, termsReady: false,
   };
 }
@@ -246,11 +249,127 @@ function applyCentreRow(row) {
     openStart: row.openStart,
     openEnd: row.openEnd,
     openingDays: row.openingDays || [],
+    locationName: row.publicName || row.name || '',
+    locationAddress: row.address || '',
+    locationPostal: row.postal || '',
+    locationCity: row.city || '',
+    locationCountry: row.country || 'Belgique',
     logo: logoView(row.logoFileId),
   });
   document.querySelector('.centre-switcher strong').textContent = row.publicName || row.name || 'Mon centre';
   document.querySelector('.centre-switcher small').textContent = row.status === 'active' ? 'Espace actif' : 'Configuration en cours';
   applyCentreBranding();
+}
+
+function locationSetup(location) {
+  return {
+    locationName: location?.name || '',
+    locationAddress: location?.address || '',
+    locationPostal: location?.postal || '',
+    locationCity: location?.city || '',
+    locationCountry: location?.country || 'Belgique',
+    roomCount: location?.roomCount ? String(location.roomCount) : '',
+    openStart: location?.openStart || '',
+    openEnd: location?.openEnd || '',
+    openingDays: location?.openingDays || [],
+  };
+}
+
+async function refreshCentreLocations({ selectPrimary = false } = {}) {
+  if (!centreRow) { centreLocations = []; return; }
+  const result = await tables.listRows({
+    databaseId: APPWRITE_DATABASE_ID,
+    tableId: APPWRITE_LOCATIONS_TABLE_ID,
+    queries: [Query.equal('centreId', [centreRow.$id]), Query.limit(100)],
+  });
+  centreLocations = result.rows || [];
+  if (selectPrimary && centreLocations.length) {
+    const location = centreLocations.find(item => item.isPrimary) || centreLocations[0];
+    editingLocationId = location.$id;
+    saveSetup(locationSetup(location));
+  }
+}
+
+function locationPermissions() {
+  const teamId = centreRow?.teamId;
+  const ownerId = centreRow?.ownerId;
+  const permissions = [
+    Permission.read(Role.user(ownerId)),
+    Permission.update(Role.user(ownerId)),
+    Permission.delete(Role.user(ownerId)),
+  ];
+  if (teamId) {
+    permissions.push(Permission.read(Role.team(teamId)));
+    permissions.push(Permission.update(Role.team(teamId, 'yc-admin')));
+    permissions.push(Permission.delete(Role.team(teamId, 'yc-admin')));
+  }
+  return permissions;
+}
+
+function validateLocation(data) {
+  if (!data.name || !data.address || !data.postal || !data.city || !data.country) return 'Complète le nom et l’adresse du lieu.';
+  if (!Number.isInteger(data.roomCount) || data.roomCount < 1 || data.roomCount > 99) return 'Le nombre de salles doit être compris entre 1 et 99.';
+  if (!data.openStart || !data.openEnd || data.openStart >= data.openEnd) return 'Indique des heures d’ouverture et de fermeture valides.';
+  if (!data.openingDays.length) return 'Choisis au moins un jour d’ouverture.';
+  return '';
+}
+
+async function persistLocation(makePrimary = false) {
+  if (!centreRow?.teamId) throw new Error('Le centre doit être relié à son équipe avant d’ajouter un lieu.');
+  const now = new Date().toISOString();
+  const existing = centreLocations.find(item => item.$id === editingLocationId) || null;
+  const isPrimary = makePrimary || !centreLocations.length || Boolean(existing?.isPrimary);
+  const data = {
+    centreId: centreRow.$id,
+    teamId: centreRow.teamId,
+    name: setup.locationName.trim(),
+    address: setup.locationAddress.trim(),
+    postal: setup.locationPostal.trim(),
+    city: setup.locationCity.trim(),
+    country: setup.locationCountry.trim(),
+    roomCount: Number(setup.roomCount),
+    openStart: setup.openStart,
+    openEnd: setup.openEnd,
+    openingDays: setup.openingDays,
+    isPrimary,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  const validation = validateLocation(data);
+  if (validation) throw new Error(validation);
+  if (isPrimary) {
+    await Promise.all(centreLocations.filter(item => item.isPrimary && item.$id !== existing?.$id).map(item => tables.updateRow({
+      databaseId: APPWRITE_DATABASE_ID,
+      tableId: APPWRITE_LOCATIONS_TABLE_ID,
+      rowId: item.$id,
+      data: { isPrimary: false, updatedAt: now },
+    })));
+  }
+  const saved = existing
+    ? await tables.updateRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_LOCATIONS_TABLE_ID, rowId: existing.$id, data })
+    : await tables.createRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_LOCATIONS_TABLE_ID, rowId: ID.unique(), data, permissions: locationPermissions() });
+  editingLocationId = saved.$id;
+  if (isPrimary) {
+    centreRow = await tables.updateRow({
+      databaseId: APPWRITE_DATABASE_ID,
+      tableId: APPWRITE_CENTRES_TABLE_ID,
+      rowId: centreRow.$id,
+      data: { openStart: data.openStart, openEnd: data.openEnd, openingDays: data.openingDays, updatedAt: now },
+    });
+  }
+  await refreshCentreLocations();
+  saveSetup(locationSetup(saved));
+  return saved;
+}
+
+async function deleteLocation(locationId) {
+  const location = centreLocations.find(item => item.$id === locationId);
+  if (!location) throw new Error('Ce lieu est introuvable.');
+  if (location.isPrimary && centreLocations.length > 1) throw new Error('Définis un autre lieu principal avant de supprimer celui-ci.');
+  await tables.deleteRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_LOCATIONS_TABLE_ID, rowId: locationId });
+  editingLocationId = '';
+  await refreshCentreLocations();
+  saveSetup(locationSetup(null));
 }
 
 async function uploadCentreLogo(file) {
@@ -314,6 +433,7 @@ async function loadCentre() {
     if (centreRow.teamId) {
       await refreshCentreMembers();
     }
+    await refreshCentreLocations({ selectPrimary: true });
   }
   return centreRow;
 }
@@ -354,7 +474,7 @@ function setupSteps() {
   return [
     ['identity', Boolean(setup.centreName && setup.publicName && setup.email && setup.phone && setup.address && setup.postal && setup.city && setup.country)],
     ['branding', Boolean(setup.logo)],
-    ['locations', Boolean(setup.locationName && setup.openStart && setup.openEnd)],
+    ['locations', centreLocations.length > 0],
     ['clients', setup.clientsReady],
     ['connections', Boolean(setup.calendarProvider && setup.emailProvider)],
     ['team', setup.teamReady],
@@ -473,6 +593,11 @@ function membersPanel() {
   return `<article class="panel member-list"><div class="panel-head"><div><h3>Accès existants</h3><p>${centreMembers.length} personne${centreMembers.length > 1 ? 's' : ''} rattachée${centreMembers.length > 1 ? 's' : ''} à ce centre.</p></div></div>${centreMembers.map(member => { const profile = memberProfile(member); const name = profile?.name || member.userName || 'Membre du centre'; const email = profile?.email || member.userEmail || ''; return `<div class="member-row"><span class="avatar">${safeText(name.charAt(0).toUpperCase())}</span><div><strong>${safeText(name)}</strong><small>${safeText(email)}</small></div><span class="tag ${member.confirm ? 'mint-tag' : 'gold-tag'}">${member.confirm ? 'Actif' : 'Invitation envoyée'}</span><b>${safeText(memberRoleLabel(member))}</b>${member.roles?.includes('owner') ? '<em>Accès complet</em>' : `<div class="member-actions"><button class="outline" data-member-edit="${safeText(member.$id)}">Modifier</button><button class="text-button danger" data-member-remove="${safeText(member.$id)}">Retirer</button></div>`}</div>`; }).join('')}</article>`;
 }
 
+function locationsPanel() {
+  if (!centreLocations.length) return '<article class="panel location-empty"><strong>Aucun lieu enregistré</strong><p>Complète le formulaire ci-dessous pour créer le premier lieu du centre.</p></article>';
+  return `<div class="location-list">${centreLocations.map(location => `<article class="panel location-card ${location.$id === editingLocationId ? 'selected' : ''}"><div><span class="location-pin">⌖</span><div><strong>${safeText(location.name)}</strong><small>${safeText(`${location.address}, ${location.postal} ${location.city} · ${location.country}`)}</small><em>${safeText((location.openingDays || []).join(' · '))} · ${safeText(location.openStart)}–${safeText(location.openEnd)} · ${location.roomCount} salle${location.roomCount > 1 ? 's' : ''}</em></div></div><div class="location-actions">${location.isPrimary ? '<span class="tag mint-tag">Lieu principal</span>' : ''}<button class="outline" data-location-edit="${safeText(location.$id)}">Modifier</button><button class="text-button danger" data-location-delete="${safeText(location.$id)}">Supprimer</button></div></article>`).join('')}</div>`;
+}
+
 async function refreshCentreMembers() {
   if (!centreRow?.teamId) return;
   const result = await teams.listMemberships({ teamId: centreRow.teamId, queries: [Query.limit(100)] });
@@ -528,8 +653,9 @@ function renderSettings(section) {
       <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom du centre *', 'centreName', setup.centreName, 'text', 'maxlength="128"')}${field('Nom public affiché *', 'publicName', setup.publicName, 'text', 'maxlength="128"')}${field('Raison sociale', 'company', setup.company, 'text', 'maxlength="160"')}${field('N° d’entreprise / TVA', 'vat', setup.vat, 'text', 'maxlength="40"')}${field('E-mail principal *', 'email', setup.email, 'email', 'maxlength="320"')}${field('Téléphone *', 'phone', setup.phone, 'tel', 'maxlength="40"')}${field('Site internet', 'website', setup.website, 'text', 'inputmode="url" maxlength="512" placeholder="www.moncentre.be"')}${field('Adresse *', 'address', setup.address, 'text', 'maxlength="255"')}${field('Code postal *', 'postal', setup.postal, 'text', 'maxlength="24"')}${field('Ville *', 'city', setup.city, 'text', 'maxlength="96"')}${field('Pays *', 'country', setup.country, 'text', 'maxlength="96"')}</div><div class="setup-grid compact-grid"><label class="setup-field"><span>Langue administrative</span><select name="language"><option ${setup.language === 'Français' ? 'selected' : ''}>Français</option><option ${setup.language === 'Nederlands' ? 'selected' : ''}>Nederlands</option><option ${setup.language === 'English' ? 'selected' : ''}>English</option></select></label><label class="setup-field"><span>Fuseau horaire</span><select name="timezone"><option ${setup.timezone === 'Europe/Brussels' ? 'selected' : ''}>Europe/Brussels</option><option ${setup.timezone === 'Europe/Paris' ? 'selected' : ''}>Europe/Paris</option><option ${setup.timezone === 'Europe/Luxembourg' ? 'selected' : ''}>Europe/Luxembourg</option></select></label></div><p class="setup-note">Le nom public et le logo seront visibles dans le portail client et les communications. La raison sociale et le numéro d’entreprise restent réservés aux documents administratifs.</p><div class="form-actions"><span class="setup-live-status">${centreRow?.status === 'active' ? '● Espace actif' : '● Brouillon'}</span><button class="primary" type="submit">Enregistrer dans Appwrite</button></div></form>`,
     branding: `${settingsHeader('Logo et apparence', 'Le logo est contrôlé, prévisualisé puis enregistré dans l’espace sécurisé du centre.', 'Étape 2')}
       <div class="panel branding-setup"><label class="logo-drop"><span>◉</span><div><strong>${setup.logo ? 'Remplacer le logo' : 'Choisir le logo du centre'}</strong><small>PNG, JPG ou WEBP · 150 Ko maximum · métadonnées retirées</small></div><input id="centreLogoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><div class="logo-preview ${setup.logo ? 'has-logo' : ''}">${setup.logo ? `<img src="${safeText(setup.logo)}" alt="Logo de ${safeText(setup.publicName || setup.centreName)}">` : `<span>${safeText(centreInitials())}</span>`}<div><strong>Aperçu de l’identité du centre</strong><small>${safeText(setup.publicName || setup.centreName)}</small><em>${setup.logo ? 'Logo enregistré dans Appwrite' : 'Initiales utilisées tant qu’aucun logo n’est ajouté'}</em></div></div>${setup.logo ? '<button class="outline" data-action="remove-centre-logo">Retirer définitivement le logo</button>' : ''}<p class="setup-note">Ce logo public identifiera le centre dans YulyfCentre, puis dans son portail client, ses e-mails administratifs et ses factures. Seul un administrateur du centre peut le remplacer ou le supprimer.</p></div>`,
-    locations: `${settingsHeader('Lieux et horaires d’activité', 'Ajoute l’adresse principale, le nombre de salles et les heures d’ouverture.', 'Étape 3')}
-      <form class="panel setup-form" data-setup-form><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName)}${field('Nombre de salles', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Ouverture', 'openStart', setup.openStart, 'time')}${field('Fermeture', 'openEnd', setup.openEnd, 'time')}</div><div class="weekday-picker"><span>Jours d’ouverture</span>${['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(day => `<button type="button" data-opening-day="${day}" class="${setup.openingDays.includes(day) ? 'selected' : ''}">${day}</button>`).join('')}</div><div class="form-actions"><button type="button" class="outline" data-action="add-location">＋ Ajouter un autre lieu</button><button class="primary" type="submit">Enregistrer dans Appwrite</button></div></form>`,
+    locations: `${settingsHeader('Lieux et horaires d’activité', 'Chaque lieu est enregistré séparément dans Appwrite avec son adresse, ses salles et ses heures d’ouverture.', 'Étape 3')}
+      ${locationsPanel()}
+      <form class="panel setup-form location-form" data-location-form><div class="location-form-title"><div><h3>${editingLocationId ? 'Modifier le lieu' : 'Ajouter un lieu'}</h3><p>${editingLocationId ? 'Les modifications seront appliquées au lieu sélectionné.' : 'Le premier lieu créé devient automatiquement le lieu principal.'}</p></div>${editingLocationId ? '<button type="button" class="outline" data-action="add-location">＋ Nouveau lieu</button>' : ''}</div><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName, 'text', 'maxlength="128"')}${field('Nombre de salles *', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Adresse *', 'locationAddress', setup.locationAddress, 'text', 'maxlength="255"')}${field('Code postal *', 'locationPostal', setup.locationPostal, 'text', 'maxlength="24"')}${field('Ville *', 'locationCity', setup.locationCity, 'text', 'maxlength="96"')}${field('Pays *', 'locationCountry', setup.locationCountry, 'text', 'maxlength="96"')}${field('Ouverture *', 'openStart', setup.openStart, 'time')}${field('Fermeture *', 'openEnd', setup.openEnd, 'time')}</div><div class="weekday-picker"><span>Jours d’ouverture *</span>${['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(day => `<button type="button" data-opening-day="${day}" class="${setup.openingDays.includes(day) ? 'selected' : ''}">${day}</button>`).join('')}</div><label class="primary-location-choice"><input type="checkbox" name="isPrimary" ${(!centreLocations.length || centreLocations.find(item => item.$id === editingLocationId)?.isPrimary) ? 'checked' : ''}><span>Définir comme lieu principal du centre</span></label><div class="form-actions"><button class="primary" type="submit">${editingLocationId ? 'Enregistrer les modifications' : 'Ajouter le lieu'}</button></div></form>`,
     clients: `${settingsHeader('Clients du centre', 'Crée un client manuellement ou importe une liste existante. Rien n’est enregistré avant confirmation.', 'Étape 4')}
       <div class="setup-two-cols"><article class="panel setup-choice"><span class="choice-icon">＋</span><h3>Ajouter manuellement</h3><p>Nom, prénom, e-mail, téléphone, adresse et praticien du centre.</p><button class="outline" data-action="setup-manual-client">Créer un client fictif</button></article><article class="panel setup-choice"><span class="choice-icon">⇧</span><h3>Importer une liste</h3><p>CSV ou Excel. Les doublons seront signalés avant confirmation.</p><label class="primary file-button">Choisir un fichier fictif<input id="centreClientsInput" type="file" accept=".csv,.xlsx,text/csv" hidden></label></article></div><div id="clientImportPreview"></div>
       <article class="panel data-boundary"><strong>Colonnes autorisées</strong><p>Prénom · Nom · E-mail · Téléphone · Adresse · Praticien du centre</p><strong>Colonnes refusées</strong><p>Diagnostic · Notes · Analyses · Consentements · Comptes rendus médicaux</p></article>`,
@@ -587,6 +713,29 @@ document.addEventListener('click', async event => {
   const setupSection = event.target.closest('[data-setup-section]');
   if (setupSection) return renderSettings(setupSection.dataset.setupSection);
 
+  const locationEdit = event.target.closest('[data-location-edit]');
+  if (locationEdit) {
+    const location = centreLocations.find(item => item.$id === locationEdit.dataset.locationEdit);
+    if (!location) return showToast('Ce lieu est introuvable.');
+    editingLocationId = location.$id;
+    saveSetup(locationSetup(location));
+    renderSettings('locations');
+    return;
+  }
+
+  const locationDelete = event.target.closest('[data-location-delete]');
+  if (locationDelete) {
+    const location = centreLocations.find(item => item.$id === locationDelete.dataset.locationDelete);
+    if (!location || !confirm(`Supprimer le lieu « ${location.name} » ?`)) return;
+    locationDelete.disabled = true;
+    try {
+      await deleteLocation(location.$id);
+      renderSettings('locations');
+      showToast('Lieu supprimé du centre.');
+    } catch (error) { locationDelete.disabled = false; showToast(error.message || appwriteMessage(error)); }
+    return;
+  }
+
   const memberEdit = event.target.closest('[data-member-edit]');
   if (memberEdit) {
     const member = centreMembers.find(item => item.$id === memberEdit.dataset.memberEdit);
@@ -630,7 +779,7 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
   if (!action) return;
   if (action.dataset.action === 'logout') {
-    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
+    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; editingLocationId = ''; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
   }
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',
@@ -652,13 +801,18 @@ document.addEventListener('click', async event => {
     ,'support-next': 'Demande préparée pour BackofficeLYC — aucun ticket réel n’est créé.'
     ,'tutorials': 'Les tutoriels Yulyf seront réutilisés pour YulyfCentre.'
     ,'grant-demo': 'Accès temporaire simulé. En production, il expirera automatiquement.'
-    ,'add-location': 'Un second lieu pourra être ajouté dans la couche de données Appwrite.'
     ,'setup-manual-client': 'Client fictif préparé : seules les données administratives sont demandées.'
     ,'setup-team-ready': 'Les accès sont maintenant gérés dans le formulaire ci-dessous.'
   };
   if (action.dataset.action === 'remove-centre-logo') {
     action.disabled = true;
     return removeCentreLogo().then(() => { renderSettings('branding'); showToast('Logo retiré de YulyfCentre et supprimé du stockage.'); }).catch(error => { action.disabled = false; showToast(error.message || appwriteMessage(error)); });
+  }
+  if (action.dataset.action === 'add-location') {
+    editingLocationId = '';
+    saveSetup(locationSetup(null));
+    renderSettings('locations');
+    return;
   }
   if (action.dataset.action === 'setup-manual-client') saveSetup({ clientsReady: true });
   if (action.dataset.action === 'setup-team-ready') saveSetup({ teamReady: true });
@@ -700,6 +854,22 @@ document.addEventListener('submit', async event => {
       }
       openApplication();
     } catch (error) { renderAuthGate(mode, appwriteMessage(error)); }
+    return;
+  }
+  const locationForm = event.target.closest('[data-location-form]');
+  if (locationForm) {
+    event.preventDefault();
+    const formData = new FormData(locationForm);
+    const makePrimary = formData.get('isPrimary') === 'on';
+    formData.delete('isPrimary');
+    saveSetup(Object.fromEntries(formData.entries()));
+    const submit = locationForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      await persistLocation(makePrimary);
+      renderSettings('locations');
+      showToast('Lieu et horaires enregistrés dans Appwrite.');
+    } catch (error) { submit.disabled = false; showToast(error.message || appwriteMessage(error)); }
     return;
   }
   const form = event.target.closest('[data-setup-form]');

@@ -32,6 +32,21 @@ isolée des tables historiques `records` et `admin_records` de LYC.
 - La complétion de cette étape exige le nom administratif, le nom public et les
   coordonnées indispensables, mais ne bloque jamais l’accès à l’espace actif.
 
+## Couche lieux et horaires
+
+- Table dédiée : `yulyf_centre_locations`.
+- Plusieurs lieux par centre avec nom, adresse complète, pays, nombre de salles,
+  jours et heures d’ouverture.
+- Un seul lieu principal ; le choix d’un nouveau lieu principal rétrograde
+  automatiquement le précédent.
+- Lecture réservée au propriétaire et aux membres de l’équipe du centre.
+- Modification et suppression réservées au propriétaire et aux membres ayant
+  le rôle Appwrite `yc-admin`.
+- Les permissions sont rattachées au propriétaire et au rôle, jamais au compte
+  personnel de la personne qui crée le lieu.
+- Les horaires du lieu principal restent répliqués dans `yulyf_centres` pour la
+  compatibilité avec la vue agenda existante.
+
 ## Couche logo et identité visuelle
 
 - Bucket : `yulyf_centre_branding`
