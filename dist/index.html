@@ -7,7 +7,7 @@
   <meta name="description" content="Prototype de YulyfCentre pour les centres multidisciplinaires.">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>YulyfCentre — Projet en construction</title>
-  <link rel="stylesheet" href="styles.css?v=20261026-2">
+  <link rel="stylesheet" href="styles.css?v=20261026-4">
   <link rel="stylesheet" href="settings.css?v=20261026-3">
 </head>
 <body class="auth-pending">
@@ -104,13 +104,9 @@
 
   <template id="patients-view">
     <div class="page-head"><div><p class="eyebrow">Répertoire administratif</p><h1>Clients du centre</h1><p>Uniquement les coordonnées et activités rattachées à ce centre.</p></div><button class="primary" data-action="new-patient">＋ Nouveau client</button></div>
-    <div class="toolbar"><label class="search">⌕<input data-table-search="patientsTable" placeholder="Rechercher un client, un téléphone…"></label><select><option>Tous les praticiens</option><option>Dr Sarah Martin</option><option>Élodie Lambert</option><option>Lucas Moreau</option></select><span class="result-count">89 clients actifs</span></div>
+      <div class="toolbar"><label class="search">⌕<input data-table-search="patientsTable" placeholder="Rechercher un client, un téléphone ou une référence…"></label><span class="result-count" data-client-count>0 client actif</span></div>
     <article class="panel table-panel"><div class="table-wrap"><table id="patientsTable"><thead><tr><th>Client</th><th>Coordonnées</th><th>Praticien(s) du centre</th><th>Prochain rendez-vous</th><th></th></tr></thead><tbody>
-      <tr><td><span class="avatar aqua">SB</span><strong>Sophie Bernard</strong></td><td>0472 36 48 91<br><small>sophie.b@example.test</small></td><td><span class="dot teal-bg"></span>Dr Sarah Martin</td><td>22 oct. · 14:00</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
-      <tr><td><span class="avatar peach">JL</span><strong>Julien Lefèvre</strong></td><td>0493 12 67 45<br><small>julien.l@example.test</small></td><td><span class="dot gold-bg"></span>Élodie Lambert</td><td>22 oct. · 14:30</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
-      <tr><td><span class="avatar green">CD</span><strong>Camille Dupont</strong></td><td>0487 91 23 56<br><small>camille.d@example.test</small></td><td><span class="dot green-bg"></span>Lucas Moreau</td><td>22 oct. · 15:00</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
-      <tr><td><span class="avatar blue">EL</span><strong>Emma Laurent</strong></td><td>0478 45 12 30<br><small>emma.l@example.test</small></td><td><span class="dot teal-bg"></span>Dr Sarah Martin</td><td>24 oct. · 09:00</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
-      <tr><td><span class="avatar violet">NP</span><strong>Nathan Petit</strong></td><td>0491 78 56 23<br><small>nathan.p@example.test</small></td><td><span class="dot gold-bg"></span>Élodie Lambert</td><td>27 oct. · 11:30</td><td><button class="row-menu" data-action="open-patient">›</button></td></tr>
+
     </tbody></table></div></article>
   </template>
 
@@ -223,6 +219,6 @@
     <article class="panel temporary-access-demo"><div><span>⚿</span><div><p class="eyebrow">Après un premier échange seulement</p><h2>Accès temporaire et limité</h2><p>Si le problème ne peut pas être résolu par messages, le centre choisit lui-même la seule rubrique accessible et la durée.</p></div></div><div class="scope-demo"><label>Rubrique accessible<select><option>Agenda du centre</option><option>Facturation</option><option>Documents administratifs</option><option>Paramètres du centre</option></select></label><label>Durée<select><option>1 heure</option><option>4 heures</option><option>8 heures</option><option>24 heures</option></select></label><button class="outline" data-action="grant-demo">Simuler l'autorisation</button></div><p class="audit-note">✓ Expiration automatique · Révocation immédiate · Toutes les actions sont journalisées · Aucun accès aux dossiers médicaux</p></article>
   </template>
 
-  <script src="app.bundle.js?v=20261026-3"></script>
+  <script src="app.bundle.js?v=20261026-4"></script>
 </body>
 </html>

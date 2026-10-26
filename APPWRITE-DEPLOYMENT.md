@@ -82,6 +82,29 @@ isolée des tables historiques `records` et `admin_records` de LYC.
 - Test technique : Praticien technique C retrouve son centre et son rôle, mais
   ne peut ni modifier le centre, ni lire le registre des accès, ni s’auto-promouvoir
 
+## Couche clients et liaisons Yulyf
+
+- Table `yulyf_centre_clients` : répertoire administratif unique du centre
+  (nom, coordonnées et adresse), sans donnée clinique.
+- Table `yulyf_centre_client_links` : une liaison séparée par praticien et par
+  dossier Yulyf. Un client du centre peut donc être suivi par plusieurs
+  praticiens sans fusionner leurs dossiers privés.
+- Référence visible fournie par Yulyf.me : `YUL-AAAA-NNNNNN/PNNNN`, par exemple
+  `YUL-2026-487949/P0001`. YulyfCentre la consomme mais ne la génère pas.
+- Fonction `yulyf-centre-client-gateway` : vérifie côté serveur que l’utilisateur
+  appartient au centre et possède le droit de modifier les clients avant toute
+  création. Les tables ne sont pas ouvertes globalement aux utilisateurs.
+- Les permissions des lignes sont construites côté serveur pour le propriétaire,
+  les administrateurs et les rôles clients du centre concerné.
+- Import CSV/XLSX analysé localement, limité à 500 lignes et 2 Mo, avec rejet
+  des colonnes médicales, des lignes invalides et des doublons avant confirmation.
+- Patient technique C est créé dans le répertoire administratif de Centre
+  technique Z. Sa liaison à Praticien technique C sera ajoutée dès que son numéro
+  patient réel sera disponible dans Yulyf.me.
+- Test automatisé : création autorisée pour le propriétaire, refusée pour un
+  utilisateur extérieur, isolation lecture/écriture, unicité de la liaison et
+  absence de colonnes cliniques.
+
 ## Ancien aperçu statique
 
 - Projet Appwrite partagé d’aperçus : `69eb57e00020de70ed30`
