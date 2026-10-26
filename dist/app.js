@@ -469,8 +469,8 @@ function clientPermissions() {
 async function executeClientGateway(action, data) {
   const execution = await functions.createExecution({ functionId: APPWRITE_CLIENT_GATEWAY_ID, body: JSON.stringify({ action, centreId: centreRow.$id, data }), async: false, path: '/', method: 'POST', headers: { 'content-type': 'application/json' } });
   const payload = JSON.parse(execution.responseBody || '{}');
-  if (execution.responseStatusCode >= 400 || !payload.row) throw new Error(payload.error || 'La passerelle sécurisée a refusé l’opération.');
-  return payload.row;
+  if (execution.responseStatusCode >= 400) throw new Error(payload.error || 'La passerelle sécurisée a refusé l’opération.');
+  return payload;
 }
 
 function validateCentreClient(data) {
@@ -491,6 +491,14 @@ async function refreshCentreClients() {
   centreClients = clientsResult.rows || [];
   centreClientLinks = linksResult.rows || [];
   saveSetup({ clientsReady: centreClients.length > 0 });
+}
+
+async function syncCentreClientLinks() {
+  if (!centreRow?.teamId || !centreClients.length) return { created: 0, updated: 0, matched: 0, awaitingNumber: 0 };
+  const result = await executeClientGateway('syncLinks', {});
+  const sync = result.sync || {};
+  if (sync.created || sync.updated) await refreshCentreClients();
+  return sync;
 }
 
 async function persistCentreClient(input, source = 'manual') {
@@ -526,42 +534,14 @@ async function persistCentreClient(input, source = 'manual') {
   if (duplicate) throw new Error(`${data.firstName} ${data.lastName} existe déjà dans les clients du centre.`);
   const saved = existing
     ? await tables.updateRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CLIENTS_TABLE_ID, rowId: existing.$id, data })
-    : await executeClientGateway('createClient', data);
+    : (await executeClientGateway('createClient', data)).row;
   editingClientId = saved.$id;
   await refreshCentreClients();
   return saved;
 }
 
-function patientReferenceIsValid(value = '') {
-  return /^YUL-\d{4}-\d{6}\/P\d{4}$/.test(String(value).trim().toUpperCase());
-}
-
-function clientLinkPermissions() {
-  return clientPermissions();
-}
-
 function clientLinks(clientId) {
   return centreClientLinks.filter(link => link.clientId === clientId && link.status === 'active');
-}
-
-async function persistCentreClientLink(clientId, input) {
-  const practitionerUserId = String(input.practitionerUserId || '').trim();
-  const patientReference = String(input.patientReference || '').trim().toUpperCase();
-  if (!practitionerUserId && !patientReference) return null;
-  if (!practitionerUserId || !patientReference) throw new Error('Sélectionne le praticien et indique la référence patient Yulyf complète.');
-  if (!patientReferenceIsValid(patientReference)) throw new Error('La référence patient doit suivre le format YUL-2026-487949/P0001.');
-  const practitioner = centreMembers.find(member => member.userId === practitionerUserId);
-  if (!practitioner) throw new Error('Ce praticien ne fait pas partie du centre.');
-  const profile = memberProfile(practitioner);
-  const practitionerName = profile?.name || practitioner.userName || 'Praticien Yulyf';
-  const practitionerNumber = patientReference.split('/')[0];
-  const now = new Date().toISOString();
-  const dedupeKey = `${centreRow.$id}|${practitionerUserId}|${patientReference}`;
-  const existing = centreClientLinks.find(link => link.clientId === clientId && link.practitionerUserId === practitionerUserId);
-  const data = { centreId: centreRow.$id, teamId: centreRow.teamId, clientId, practitionerUserId, practitionerName, practitionerNumber, patientReference, yulyfPatientId: String(input.yulyfPatientId || existing?.yulyfPatientId || ''), status: 'active', dedupeKey, createdAt: existing?.createdAt || now, updatedAt: now };
-  return existing
-    ? tables.updateRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CLIENT_LINKS_TABLE_ID, rowId: existing.$id, data })
-    : executeClientGateway('createLink', data);
 }
 
 async function deleteCentreClient(clientId) {
@@ -636,6 +616,7 @@ async function loadCentre() {
     }
     await refreshCentreLocations({ selectPrimary: true });
     await refreshCentreClients();
+    await syncCentreClientLinks().catch(() => null);
   }
   return centreRow;
 }
@@ -791,28 +772,16 @@ function memberProfile(member) {
   return centreMemberProfiles.find(profile => profile.membershipId === member.$id) || null;
 }
 
-function practitionerMembers() {
-  return centreMembers.filter(member => member.roles?.includes('yc-praticien') || /praticien/i.test(memberProfile(member)?.name || member.userName || ''));
-}
-
-function practitionerOptions(selected = '') {
-  return `<option value="" ${selected ? '' : 'selected'}>Aucun dossier Yulyf relié</option>${practitionerMembers().map(member => {
-    const name = memberProfile(member)?.name || member.userName || member.userEmail;
-    return `<option value="${safeText(member.userId)}" ${member.userId === selected ? 'selected' : ''}>${safeText(name)}</option>`;
-  }).join('')}`;
-}
-
 function clientEditor() {
   const client = centreClients.find(item => item.$id === editingClientId) || {};
-  const link = clientLinks(client.$id)[0] || {};
-  return `<form class="panel setup-form client-form" data-client-form><div class="location-form-title"><div><h3>${client.$id ? 'Modifier le client' : 'Ajouter un client'}</h3><p>La fiche reste administrative. La référence Yulyf relie le dossier sans en ouvrir le contenu.</p></div>${client.$id ? '<button type="button" class="outline" data-action="add-client">＋ Nouveau client</button>' : ''}</div><div class="setup-grid">${field('Prénom *', 'firstName', client.firstName, 'text', 'maxlength="128"')}${field('Nom *', 'lastName', client.lastName, 'text', 'maxlength="128"')}${field('E-mail', 'email', client.email, 'email', 'maxlength="320"')}${field('Téléphone', 'phone', client.phone, 'tel', 'maxlength="40"')}${field('Adresse', 'address', client.address, 'text', 'maxlength="320"')}${field('Code postal', 'postal', client.postal, 'text', 'maxlength="20"')}${field('Ville', 'city', client.city, 'text', 'maxlength="128"')}${field('Pays', 'country', client.country || 'Belgique', 'text', 'maxlength="64"')}</div><div class="client-link-fields"><label class="setup-field"><span>Praticien Yulyf</span><select name="practitionerUserId">${practitionerOptions(link.practitionerUserId)}</select></label>${field('N° patient fourni par Yulyf.me', 'patientReference', link.patientReference, 'text', 'maxlength="28" placeholder="YUL-2026-487949/P0001" pattern="YUL-[0-9]{4}-[0-9]{6}/P[0-9]{4}"')}</div><div class="privacy-callout compact"><div class="shield">↔</div><div><strong>Lien contrôlé</strong><p>La référence permet d’identifier le dossier chez le praticien. Le centre ne peut lire ni notes, ni analyses, ni documents privés.</p></div></div><div class="form-actions"><button class="primary" type="submit">${client.$id ? 'Enregistrer les modifications' : 'Enregistrer le client'}</button></div></form>`;
+  return `<form class="panel setup-form client-form" data-client-form><div class="location-form-title"><div><h3>${client.$id ? 'Modifier le client' : 'Ajouter un client'}</h3><p>La fiche reste administrative. La liaison au dossier du praticien est automatique.</p></div>${client.$id ? '<button type="button" class="outline" data-action="add-client">＋ Nouveau client</button>' : ''}</div><div class="setup-grid">${field('Prénom *', 'firstName', client.firstName, 'text', 'maxlength="128"')}${field('Nom *', 'lastName', client.lastName, 'text', 'maxlength="128"')}${field('E-mail', 'email', client.email, 'email', 'maxlength="320"')}${field('Téléphone', 'phone', client.phone, 'tel', 'maxlength="40"')}${field('Adresse', 'address', client.address, 'text', 'maxlength="320"')}${field('Code postal', 'postal', client.postal, 'text', 'maxlength="20"')}${field('Ville', 'city', client.city, 'text', 'maxlength="128"')}${field('Pays', 'country', client.country || 'Belgique', 'text', 'maxlength="64"')}</div><div class="privacy-callout compact"><div class="shield">↔</div><div><strong>Synchronisation automatique avec Yulyf</strong><p>YulyfCentre rapproche l’e-mail de cette fiche avec les patients des praticiens du centre. Le numéro patient est récupéré automatiquement depuis leur Yulyf personnel. Les patients qui ne figurent pas dans la liste du centre restent invisibles, ainsi que leurs notes, analyses et documents privés.</p></div></div><div class="form-actions"><button class="primary" type="submit">${client.$id ? 'Enregistrer les modifications' : 'Enregistrer le client'}</button></div></form>`;
 }
 
 function clientsPanel() {
   if (!centreClients.length) return '<article class="panel location-empty"><strong>Aucun client enregistré</strong><p>Ajoute une fiche administrative ou importe une liste ci-dessous.</p></article>';
   return `<div class="client-list">${centreClients.map(client => {
     const links = clientLinks(client.$id);
-    const refs = links.length ? links.map(link => `<span class="client-reference"><b>${safeText(link.patientReference)}</b><small>${safeText(link.practitionerName)}</small></span>`).join('') : '<span class="tag gold-tag">Non relié à Yulyf.me</span>';
+    const refs = links.length ? links.map(link => `<span class="client-reference"><b>${safeText(link.patientReference)}</b><small>${safeText(link.practitionerName)}</small></span>`).join('') : '<span class="tag gold-tag">Synchronisation Yulyf en attente</span>';
     return `<article class="panel client-card ${editingClientId === client.$id ? 'selected' : ''}"><span class="avatar aqua">${safeText(`${client.firstName?.[0] || ''}${client.lastName?.[0] || ''}`.toUpperCase())}</span><div><strong>${safeText(`${client.firstName} ${client.lastName}`)}</strong><small>${safeText(client.email || client.phone || 'Coordonnées à compléter')}</small></div><div class="client-references">${refs}</div><div class="location-actions"><button class="outline" data-client-edit="${safeText(client.$id)}">Modifier</button><button class="text-button danger" data-client-delete="${safeText(client.$id)}">Supprimer</button></div></article>`;
   }).join('')}</div>`;
 }
@@ -822,7 +791,7 @@ function renderClientsView() {
   if (!body) return;
   body.innerHTML = centreClients.length ? centreClients.map(client => {
     const links = clientLinks(client.$id);
-    const practitioners = links.length ? links.map(link => `<span class="client-reference"><b>${safeText(link.practitionerName)}</b><small>${safeText(link.patientReference)}</small></span>`).join('') : '<span class="tag gold-tag">Non relié</span>';
+    const practitioners = links.length ? links.map(link => `<span class="client-reference"><b>${safeText(link.practitionerName)}</b><small>${safeText(link.patientReference)}</small></span>`).join('') : '<span class="tag gold-tag">Synchronisation en attente</span>';
     return `<tr><td><span class="avatar aqua">${safeText(`${client.firstName?.[0] || ''}${client.lastName?.[0] || ''}`.toUpperCase())}</span><strong>${safeText(`${client.firstName} ${client.lastName}`)}</strong></td><td>${safeText(client.phone || '—')}<br><small>${safeText(client.email || '—')}</small></td><td>${practitioners}</td><td>—</td><td><button class="row-menu" data-client-open="${safeText(client.$id)}">›</button></td></tr>`;
   }).join('') : '<tr><td colspan="5"><div class="table-empty">Aucun client administratif enregistré pour ce centre.</div></td></tr>';
   const count = document.querySelector('[data-client-count]');
@@ -984,17 +953,6 @@ function renderSettings(section) {
     terms: `${settingsHeader('Conditions et consentements', 'Centralise les conditions d’utilisation du centre et les informations administratives remises au client.')}${simpleToggleCard('Conditions du centre relues et prêtes', 'termsReady', setup.termsReady)}`
   };
   pane.innerHTML = pages[section] || pages.overview;
-  if (section === 'clients' && !editingClientId) {
-    const practitionerSelect = pane.querySelector('[data-client-form] select[name="practitionerUserId"]');
-    const resetPractitioner = () => {
-      if (practitionerSelect) {
-        practitionerSelect.value = '';
-        practitionerSelect.selectedIndex = 0;
-      }
-    };
-    resetPractitioner();
-    window.setTimeout(resetPractitioner, 0);
-  }
   updateSetupProgress();
   if (accessLevel('settings') === 'view') pane.querySelectorAll('input, textarea, select, button').forEach(control => { control.disabled = true; });
 }
@@ -1166,7 +1124,8 @@ document.addEventListener('click', async event => {
     const validRows = clientImportRows.filter(row => !row.error);
     try {
       for (const row of validRows) { editingClientId = ''; await persistCentreClient(row.data, 'import'); }
-      clientImportRows = []; editingClientId = ''; renderSettings('clients'); showToast(`${validRows.length} client${validRows.length > 1 ? 's' : ''} enregistré${validRows.length > 1 ? 's' : ''} dans Appwrite.`);
+      const sync = await syncCentreClientLinks();
+      clientImportRows = []; editingClientId = ''; renderSettings('clients'); showToast(`${validRows.length} client${validRows.length > 1 ? 's' : ''} enregistré${validRows.length > 1 ? 's' : ''}. ${sync.created || sync.updated ? 'Les dossiers Yulyf correspondants ont été reliés automatiquement.' : 'Les liaisons apparaîtront automatiquement depuis les Yulyf des praticiens.'}`);
     } catch (error) { action.disabled = false; showToast(error.message || appwriteMessage(error)); }
     return;
   }
@@ -1234,15 +1193,12 @@ document.addEventListener('submit', async event => {
     const submit = clientForm.querySelector('button[type="submit"]');
     submit.disabled = true;
     try {
-      if ((input.practitionerUserId || input.patientReference) && (!input.practitionerUserId || !patientReferenceIsValid(input.patientReference))) {
-        throw new Error('Pour relier Yulyf.me, sélectionne le praticien et utilise une référence comme YUL-2026-487949/P0001.');
-      }
       const saved = await persistCentreClient(input, 'manual');
-      await persistCentreClientLink(saved.$id, input);
+      const sync = await syncCentreClientLinks();
       await refreshCentreClients();
       editingClientId = saved.$id;
       renderSettings('clients');
-      showToast('Client et liaison Yulyf enregistrés dans Appwrite.');
+      showToast(sync.created || sync.updated ? 'Client enregistré et dossier Yulyf relié automatiquement.' : 'Client enregistré. La liaison Yulyf apparaîtra automatiquement dès que le praticien aura son numéro patient.');
     } catch (error) { submit.disabled = false; showToast(error.message || appwriteMessage(error)); }
     return;
   }

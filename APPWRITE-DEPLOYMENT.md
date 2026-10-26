@@ -90,7 +90,15 @@ isolée des tables historiques `records` et `admin_records` de LYC.
   dossier Yulyf. Un client du centre peut donc être suivi par plusieurs
   praticiens sans fusionner leurs dossiers privés.
 - Référence visible fournie par Yulyf.me : `YUL-AAAA-NNNNNN/PNNNN`, par exemple
-  `YUL-2026-487949/P0001`. YulyfCentre la consomme mais ne la génère pas.
+  `YUL-2026-487949/P0001`. YulyfCentre la consomme mais ne la génère pas et
+  personne dans le centre ne doit la recopier manuellement.
+- Synchronisation automatique : la fonction serveur rapproche uniquement les
+  clients déjà présents dans le répertoire du centre avec les dossiers des
+  praticiens membres, sur l’adresse e-mail administrative. Elle récupère alors
+  le numéro patient directement depuis le Yulyf du praticien.
+- Un patient du praticien qui n’est pas déjà repris dans la liste du centre
+  reste totalement invisible au centre. Le rapprochement ne copie jamais les
+  notes, historiques, analyses, consentements ou documents du dossier.
 - Fonction `yulyf-centre-client-gateway` : vérifie côté serveur que l’utilisateur
   appartient au centre et possède le droit de modifier les clients avant toute
   création. Les tables ne sont pas ouvertes globalement aux utilisateurs.
@@ -99,8 +107,8 @@ isolée des tables historiques `records` et `admin_records` de LYC.
 - Import CSV/XLSX analysé localement, limité à 500 lignes et 2 Mo, avec rejet
   des colonnes médicales, des lignes invalides et des doublons avant confirmation.
 - Patient technique C est créé dans le répertoire administratif de Centre
-  technique Z. Sa liaison à Praticien technique C sera ajoutée dès que son numéro
-  patient réel sera disponible dans Yulyf.me.
+  technique Z. Dès que son numéro patient sera disponible dans le dossier du
+  Praticien technique C dans Yulyf.me, la liaison apparaîtra automatiquement.
 - Test automatisé : création autorisée pour le propriétaire, refusée pour un
   utilisateur extérieur, isolation lecture/écriture, unicité de la liaison et
   absence de colonnes cliniques.

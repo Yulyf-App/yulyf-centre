@@ -2,6 +2,7 @@ const databaseId = 'lyc';
 const centresTableId = 'yulyf_centres';
 const clientsTableId = 'yulyf_centre_clients';
 const linksTableId = 'yulyf_centre_client_links';
+const yulyfRecordsTableId = 'records';
 
 function appwriteHeaders(req) {
   return { 'content-type': 'application/json', 'x-appwrite-project': process.env.APPWRITE_FUNCTION_PROJECT_ID, 'x-appwrite-key': req.headers['x-appwrite-key'] };
@@ -25,6 +26,17 @@ function permissions(ownerId, teamId) {
 
 function text(value, max) { return String(value || '').trim().slice(0, max); }
 function validEmail(value) { return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
+function equal(attribute, values) { return JSON.stringify({ method: 'equal', attribute, values: Array.isArray(values) ? values : [values] }); }
+function limit(value) { return JSON.stringify({ method: 'limit', values: [value] }); }
+function rowsPath(tableId, queries = []) {
+  const params = new URLSearchParams();
+  queries.forEach(query => params.append('queries[]', query));
+  return `/tablesdb/${databaseId}/tables/${tableId}/rows${params.size ? `?${params}` : ''}`;
+}
+function patientReference(payload) {
+  return text(payload.patientNumber || payload.patientReference || payload.dossierNumber, 25).toUpperCase();
+}
+function normalizedEmail(value) { return text(value, 320).toLowerCase(); }
 
 export default async ({ req, res, error }) => {
   try {
@@ -50,18 +62,46 @@ export default async ({ req, res, error }) => {
       return res.json({ row: created }, 201);
     }
 
-    if (body.action === 'createLink') {
-      const input = body.data || {};
-      const clientId = text(input.clientId, 36), practitionerUserId = text(input.practitionerUserId, 36), patientReference = text(input.patientReference, 25).toUpperCase();
-      if (!/^YUL-\d{4}-\d{6}\/P\d{4}$/.test(patientReference)) return res.json({ error: 'Référence patient Yulyf invalide.' }, 400);
-      const centreClient = await api(req, `/tablesdb/${databaseId}/tables/${clientsTableId}/rows/${clientId}`);
-      if (centreClient.centreId !== centreId) return res.json({ error: 'Ce client appartient à un autre centre.' }, 403);
-      const practitioner = memberships.memberships?.find(item => item.userId === practitionerUserId);
-      if (!practitioner) return res.json({ error: 'Le praticien ne fait pas partie de ce centre.' }, 400);
-      const practitionerName = text(input.practitionerName || practitioner.userName || 'Praticien Yulyf', 128);
-      const data = { centreId, teamId: centre.teamId, clientId, practitionerUserId, practitionerName, practitionerNumber: patientReference.split('/')[0], patientReference, yulyfPatientId: text(input.yulyfPatientId, 36), status: 'active', dedupeKey: `${centreId}|${practitionerUserId}|${patientReference}`, createdAt: now, updatedAt: now };
-      const created = await api(req, `/tablesdb/${databaseId}/tables/${linksTableId}/rows`, { method: 'POST', body: JSON.stringify({ rowId: 'unique()', data, permissions: permissions(centre.ownerId, centre.teamId) }) });
-      return res.json({ row: created }, 201);
+    if (body.action === 'syncLinks') {
+      const [clientsResult, linksResult] = await Promise.all([
+        api(req, rowsPath(clientsTableId, [equal('centreId', centreId), limit(500)])),
+        api(req, rowsPath(linksTableId, [equal('centreId', centreId), limit(500)])),
+      ]);
+      const clients = clientsResult.rows || [];
+      const links = linksResult.rows || [];
+      const members = memberships.memberships || [];
+      const practitionerIds = [...new Set([centre.ownerId, ...members.filter(item => item.confirm !== false).map(item => item.userId)].filter(Boolean))];
+      let created = 0, updated = 0, matched = 0, awaitingNumber = 0;
+
+      for (const practitionerUserId of practitionerIds) {
+        const patientRows = await api(req, rowsPath(yulyfRecordsTableId, [equal('owner', practitionerUserId), equal('kind', 'patients'), limit(500)]));
+        const practitioner = members.find(item => item.userId === practitionerUserId);
+        const practitionerName = text(practitioner?.userName || (practitionerUserId === centre.ownerId ? 'Propriétaire du centre' : 'Praticien Yulyf'), 128);
+        for (const patientRow of patientRows.rows || []) {
+          let patient = {};
+          try { patient = JSON.parse(patientRow.payload || '{}'); } catch { continue; }
+          const reference = patientReference(patient);
+          const accountId = text(patient.yulyfAccountId || patient.accountId || patient.userId, 36);
+          const email = normalizedEmail(patient.email || patientRow.access);
+          const centreClient = clients.find(client => (accountId && client.yulyfAccountId === accountId) || (email && normalizedEmail(client.email) === email));
+          if (!centreClient) continue;
+          matched += 1;
+          if (!/^YUL-\d{4}-\d{6}\/P\d{4}$/.test(reference)) { awaitingNumber += 1; continue; }
+          const yulyfPatientId = text(patient.id || patientRow.$id, 36);
+          const existing = links.find(link => link.clientId === centreClient.$id && link.practitionerUserId === practitionerUserId);
+          const data = { centreId, teamId: centre.teamId, clientId: centreClient.$id, practitionerUserId, practitionerName, practitionerNumber: reference.split('/')[0], patientReference: reference, yulyfPatientId, status: 'active', dedupeKey: `${centreId}|${practitionerUserId}|${reference}`, createdAt: existing?.createdAt || now, updatedAt: now };
+          if (existing) {
+            if (existing.patientReference !== reference || existing.yulyfPatientId !== yulyfPatientId || existing.status !== 'active') {
+              await api(req, `/tablesdb/${databaseId}/tables/${linksTableId}/rows/${existing.$id}`, { method: 'PATCH', body: JSON.stringify({ data }) });
+              updated += 1;
+            }
+          } else {
+            await api(req, `/tablesdb/${databaseId}/tables/${linksTableId}/rows`, { method: 'POST', body: JSON.stringify({ rowId: 'unique()', data, permissions: permissions(centre.ownerId, centre.teamId) }) });
+            created += 1;
+          }
+        }
+      }
+      return res.json({ sync: { created, updated, matched, awaitingNumber } });
     }
     return res.json({ error: 'Action inconnue.' }, 400);
   } catch (caught) {

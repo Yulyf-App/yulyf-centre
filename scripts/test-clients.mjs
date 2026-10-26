@@ -7,6 +7,7 @@ const databaseId = 'lyc';
 const centresTableId = 'yulyf_centres';
 const clientsTableId = 'yulyf_centre_clients';
 const linksTableId = 'yulyf_centre_client_links';
+const recordsTableId = 'records';
 const gatewayId = 'yulyf-centre-client-gateway';
 const suffix = Date.now().toString(36);
 const ownerId = `ycc-owner-${suffix}`;
@@ -14,7 +15,7 @@ const outsiderId = `ycc-out-${suffix}`;
 const centreId = `ycc-centre-${suffix}`;
 const password = `YcClient-${suffix}-A1!`;
 const cleanupErrors = [];
-let ownerTables, ownerTeams, teamId, createdClientId, createdLinkId;
+let ownerTables, ownerTeams, teamId, createdClientId, createdLinkId, createdPatientRowId;
 
 function cli(args) {
   const command = process.platform === 'win32' ? process.execPath : 'appwrite';
@@ -49,14 +50,15 @@ try {
   const clientExecution = await gateway(owner.functions, 'createClient', centreId, clientInput);
   if (clientExecution.status !== 201 || !clientExecution.payload.row?.$id) throw new Error(`La passerelle n’a pas créé le client : ${clientExecution.payload.error || clientExecution.status}`);
   createdClientId = clientExecution.payload.row.$id;
-  const linkInput = { clientId: createdClientId, practitionerUserId: ownerId, practitionerName: 'Praticien technique', patientReference: 'YUL-2026-487949/P0001', yulyfPatientId: 'technical-patient' };
-  const linkExecution = await gateway(owner.functions, 'createLink', centreId, linkInput);
-  if (linkExecution.status !== 201 || !linkExecution.payload.row?.$id) throw new Error(`La passerelle n’a pas créé la liaison : ${linkExecution.payload.error || linkExecution.status}`);
-  createdLinkId = linkExecution.payload.row.$id;
+  createdPatientRowId = `ycc-patient-${suffix}`;
+  cli(['tablesdb', 'create-row', '--database-id', databaseId, '--table-id', recordsTableId, '--row-id', createdPatientRowId, '--data', JSON.stringify({ owner: ownerId, kind: 'patients', patient: '', access: clientInput.email, payload: JSON.stringify({ id: createdPatientRowId, first: 'Patient', last: 'Technique', email: clientInput.email, patientNumber: 'YUL-2026-487949/P0001', history: 'Cette donnée privée ne doit jamais être copiée dans YulyfCentre.' }) }), '-R']);
+  const linkExecution = await gateway(owner.functions, 'syncLinks', centreId, {});
+  if (linkExecution.status !== 200 || linkExecution.payload.sync?.created !== 1) throw new Error(`La synchronisation automatique n’a pas créé la liaison : ${linkExecution.payload.error || linkExecution.status}`);
 
   const ownerClients = await ownerTables.listRows({ databaseId, tableId: clientsTableId, queries: [Query.equal('centreId', [centreId])] });
   const ownerLinks = await ownerTables.listRows({ databaseId, tableId: linksTableId, queries: [Query.equal('clientId', [createdClientId])] });
   if (ownerClients.rows.length !== 1 || ownerLinks.rows.length !== 1 || ownerLinks.rows[0].patientReference !== 'YUL-2026-487949/P0001') throw new Error('La fiche ou sa référence patient n’est pas persistée correctement.');
+  createdLinkId = ownerLinks.rows[0].$id;
   await ownerTables.updateRow({ databaseId, tableId: clientsTableId, rowId: createdClientId, data: { phone: '+32000000000', updatedAt: new Date().toISOString() } });
 
   const outsiderAttempt = await gateway(outsider.functions, 'createClient', centreId, { ...clientInput, email: `outsider-${suffix}@example.com`, dedupeKey: `${centreId}|email:outsider-${suffix}@example.com` });
@@ -68,13 +70,14 @@ try {
   try { await outsider.tables.updateRow({ databaseId, tableId: clientsTableId, rowId: createdClientId, data: { lastName: 'Interdit' } }); } catch { updateBlocked = true; }
   if (outsiderClients.rows.length || outsiderLinks.rows.length || !directReadBlocked || !updateBlocked) throw new Error('L’isolation entre centres n’est pas appliquée.');
 
-  const duplicate = await gateway(owner.functions, 'createLink', centreId, linkInput);
-  const duplicateBlocked = duplicate.status === 409 || /unique|existe|constraint/i.test(duplicate.payload.error || '');
-  if (!duplicateBlocked) throw new Error('Une référence patient identique peut être reliée deux fois au même praticien et centre.');
+  const repeatedSync = await gateway(owner.functions, 'syncLinks', centreId, {});
+  const repeatedLinks = await ownerTables.listRows({ databaseId, tableId: linksTableId, queries: [Query.equal('clientId', [createdClientId])] });
+  const duplicateBlocked = repeatedSync.status === 200 && repeatedSync.payload.sync?.created === 0 && repeatedLinks.rows.length === 1;
+  if (!duplicateBlocked) throw new Error('La synchronisation automatique duplique une liaison existante.');
   const schema = cli(['tablesdb', 'get-table', '--database-id', databaseId, '--table-id', linksTableId, '-R']);
   const forbidden = ['diagnostic', 'notes', 'analysis', 'medical', 'consent'].filter(key => schema.columns.some(column => column.key.toLowerCase().includes(key)));
   if (forbidden.length) throw new Error(`La table de liaison contient des champs sensibles : ${forbidden.join(', ')}.`);
-  console.log(JSON.stringify({ status: 'ok', gatewayValidatedMembership: true, administrativeClientPersisted: true, patientReferencePersisted: true, practitionerLinkSeparated: true, duplicateBlocked, outsiderCreationBlocked: true, outsiderHidden: true, directReadBlocked, updateBlocked, noClinicalColumns: true }));
+  console.log(JSON.stringify({ status: 'ok', gatewayValidatedMembership: true, administrativeClientPersisted: true, automaticYulyfSync: true, patientReferencePersisted: true, privateHistoryNotCopied: !JSON.stringify(ownerLinks.rows[0]).includes('Cette donnée privée'), practitionerLinkSeparated: true, duplicateBlocked, outsiderCreationBlocked: true, outsiderHidden: true, directReadBlocked, updateBlocked, noClinicalColumns: true }));
 } finally {
   if (ownerTables) {
     for (const [tableId, rowId] of [[linksTableId, createdLinkId], [clientsTableId, createdClientId], [centresTableId, centreId]]) {
@@ -82,6 +85,7 @@ try {
       try { await ownerTables.deleteRow({ databaseId, tableId, rowId }); } catch { cleanupErrors.push(rowId); }
     }
   }
+  if (createdPatientRowId) { try { cli(['tablesdb', 'delete-row', '--database-id', databaseId, '--table-id', recordsTableId, '--row-id', createdPatientRowId, '-R']); } catch { cleanupErrors.push(createdPatientRowId); } }
   if (teamId && ownerTeams) { try { await ownerTeams.delete({ teamId }); } catch { cleanupErrors.push(teamId); } }
   for (const userId of [ownerId, outsiderId]) {
     try { cli(['users', 'delete', '--user-id', userId, '--force', '-R']); } catch { cleanupErrors.push(userId); }
