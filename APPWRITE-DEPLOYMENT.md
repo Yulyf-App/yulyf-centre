@@ -12,7 +12,7 @@
 - Lien de suivi GitHub Pages : `https://yulyf-app.github.io/yulyf-centre/`
 - Répertoire publié : `dist/`
 - Déploiement : activation automatique à la fin du build (`--activate`)
-- Déploiement actif contrôlé : `6ade3ccac5b684663ce0`
+- Déploiement actif contrôlé : `6adf303fdac5368c0ba8`
 - Règle de domaine vérifiée : `85550227b5626fd79a788548c73b1ef5`
 
 La première couche fonctionnelle permet de créer un compte centre, d’enregistrer
