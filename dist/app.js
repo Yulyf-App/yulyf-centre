@@ -984,6 +984,10 @@ function renderSettings(section) {
     terms: `${settingsHeader('Conditions et consentements', 'Centralise les conditions d’utilisation du centre et les informations administratives remises au client.')}${simpleToggleCard('Conditions du centre relues et prêtes', 'termsReady', setup.termsReady)}`
   };
   pane.innerHTML = pages[section] || pages.overview;
+  if (section === 'clients' && !editingClientId) {
+    const practitionerSelect = pane.querySelector('[data-client-form] select[name="practitionerUserId"]');
+    if (practitionerSelect) practitionerSelect.value = '';
+  }
   updateSetupProgress();
   if (accessLevel('settings') === 'view') pane.querySelectorAll('input, textarea, select, button').forEach(control => { control.disabled = true; });
 }
