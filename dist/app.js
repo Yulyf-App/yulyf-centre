@@ -1,4 +1,5 @@
-import { Account, Client, ID, Permission, Query, Role, Storage, TablesDB, Teams } from 'appwrite';
+import { Account, Client, Functions, ID, Permission, Query, Role, Storage, TablesDB, Teams } from 'appwrite';
+import readXlsxFile from 'read-excel-file/browser';
 import { normalizeWebsite, validWebsite } from './website.js';
 
 const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
@@ -6,6 +7,9 @@ const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
 const APPWRITE_DATABASE_ID = 'lyc';
 const APPWRITE_CENTRES_TABLE_ID = 'yulyf_centres';
 const APPWRITE_LOCATIONS_TABLE_ID = 'yulyf_centre_locations';
+const APPWRITE_CLIENTS_TABLE_ID = 'yulyf_centre_clients';
+const APPWRITE_CLIENT_LINKS_TABLE_ID = 'yulyf_centre_client_links';
+const APPWRITE_CLIENT_GATEWAY_ID = 'yulyf-centre-client-gateway';
 const APPWRITE_MEMBER_PROFILES_TABLE_ID = 'yulyf_centre_member_profiles';
 const APPWRITE_BRANDING_BUCKET_ID = 'yulyf_centre_branding';
 const appwriteClient = new Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID);
@@ -13,14 +17,19 @@ const account = new Account(appwriteClient);
 const tables = new TablesDB(appwriteClient);
 const storage = new Storage(appwriteClient);
 const teams = new Teams(appwriteClient);
+const functions = new Functions(appwriteClient);
 let currentUser = null;
 let centreRow = null;
 let centreMembership = null;
 let centreMembers = [];
 let centreMemberProfiles = [];
 let centreLocations = [];
+let centreClients = [];
+let centreClientLinks = [];
 let editingLocationId = '';
 let locationDraftDirty = false;
+let clientImportRows = [];
+let editingClientId = '';
 
 const permissionKeys = ['dashboard', 'clients', 'practitioners', 'agenda', 'requests', 'billing', 'documents', 'statistics', 'settings'];
 const viewPermissionKeys = { today: 'dashboard', patients: 'clients', practitioners: 'practitioners', agenda: 'agenda', requests: 'requests', billing: 'billing', documents: 'documents', statistics: 'statistics', settings: 'settings', portal: 'clients' };
@@ -419,6 +428,151 @@ async function deleteLocation(locationId) {
   saveSetup(locationSetup(null));
 }
 
+function normalizedEmail(value = '') {
+  return String(value).trim().toLowerCase();
+}
+
+function normalizedPhone(value = '') {
+  return String(value).replace(/[^0-9+]/g, '');
+}
+
+function clientDedupeKey(data, existing = null) {
+  const email = normalizedEmail(data.email);
+  const phone = normalizedPhone(data.phone);
+  if (email) return `${centreRow.$id}|email:${email}`;
+  if (phone) return `${centreRow.$id}|phone:${phone}`;
+  return existing?.dedupeKey || `${centreRow.$id}|client:${crypto.randomUUID()}`;
+}
+
+function clientPermissions() {
+  const teamId = centreRow?.teamId;
+  const ownerId = centreRow?.ownerId;
+  const permissions = [
+    Permission.read(Role.user(ownerId)),
+    Permission.update(Role.user(ownerId)),
+    Permission.delete(Role.user(ownerId)),
+  ];
+  if (teamId) {
+    permissions.push(Permission.read(Role.team(teamId, 'owner')));
+    permissions.push(Permission.read(Role.team(teamId, 'yc-admin')));
+    permissions.push(Permission.read(Role.team(teamId, 'p-clients-view')));
+    permissions.push(Permission.read(Role.team(teamId, 'p-clients-edit')));
+    permissions.push(Permission.update(Role.team(teamId, 'owner')));
+    permissions.push(Permission.update(Role.team(teamId, 'yc-admin')));
+    permissions.push(Permission.update(Role.team(teamId, 'p-clients-edit')));
+    permissions.push(Permission.delete(Role.team(teamId, 'owner')));
+    permissions.push(Permission.delete(Role.team(teamId, 'yc-admin')));
+  }
+  return permissions;
+}
+
+async function executeClientGateway(action, data) {
+  const execution = await functions.createExecution({ functionId: APPWRITE_CLIENT_GATEWAY_ID, body: JSON.stringify({ action, centreId: centreRow.$id, data }), async: false, path: '/', method: 'POST', headers: { 'content-type': 'application/json' } });
+  const payload = JSON.parse(execution.responseBody || '{}');
+  if (execution.responseStatusCode >= 400 || !payload.row) throw new Error(payload.error || 'La passerelle sécurisée a refusé l’opération.');
+  return payload.row;
+}
+
+function validateCentreClient(data) {
+  if (!String(data.firstName || '').trim() || !String(data.lastName || '').trim()) return 'Complète le prénom et le nom du client.';
+  const email = normalizedEmail(data.email);
+  const phone = normalizedPhone(data.phone);
+  if (!email && !phone) return 'Ajoute au moins une adresse e-mail ou un numéro de téléphone.';
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'L’adresse e-mail du client est invalide.';
+  return '';
+}
+
+async function refreshCentreClients() {
+  if (!centreRow) { centreClients = []; centreClientLinks = []; return; }
+  const [clientsResult, linksResult] = await Promise.all([
+    tables.listRows({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CLIENTS_TABLE_ID, queries: [Query.equal('centreId', [centreRow.$id]), Query.orderAsc('lastName'), Query.limit(500)] }),
+    tables.listRows({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CLIENT_LINKS_TABLE_ID, queries: [Query.equal('centreId', [centreRow.$id]), Query.limit(500)] }),
+  ]);
+  centreClients = clientsResult.rows || [];
+  centreClientLinks = linksResult.rows || [];
+  saveSetup({ clientsReady: centreClients.length > 0 });
+}
+
+async function persistCentreClient(input, source = 'manual') {
+  if (!centreRow?.teamId) throw new Error('Le centre doit être relié à son équipe avant d’ajouter un client.');
+  const existing = centreClients.find(item => item.$id === editingClientId) || null;
+  const now = new Date().toISOString();
+  const data = {
+    centreId: centreRow.$id,
+    teamId: centreRow.teamId,
+    firstName: String(input.firstName || '').trim(),
+    lastName: String(input.lastName || '').trim(),
+    email: normalizedEmail(input.email),
+    phone: String(input.phone || '').trim(),
+    address: String(input.address || '').trim(),
+    postal: String(input.postal || '').trim(),
+    city: String(input.city || '').trim(),
+    country: String(input.country || 'Belgique').trim(),
+    practitionerUserId: '',
+    practitionerName: '',
+    source,
+    yulyfPatientId: '',
+    yulyfAccountId: String(input.yulyfAccountId || existing?.yulyfAccountId || ''),
+    sourceOwnerId: '',
+    dedupeKey: '',
+    active: input.active !== false,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  const validation = validateCentreClient(data);
+  if (validation) throw new Error(validation);
+  data.dedupeKey = clientDedupeKey(data, existing);
+  const duplicate = centreClients.find(item => item.dedupeKey === data.dedupeKey && item.$id !== existing?.$id);
+  if (duplicate) throw new Error(`${data.firstName} ${data.lastName} existe déjà dans les clients du centre.`);
+  const saved = existing
+    ? await tables.updateRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CLIENTS_TABLE_ID, rowId: existing.$id, data })
+    : await executeClientGateway('createClient', data);
+  editingClientId = saved.$id;
+  await refreshCentreClients();
+  return saved;
+}
+
+function patientReferenceIsValid(value = '') {
+  return /^YUL-\d{4}-\d{6}\/P\d{4}$/.test(String(value).trim().toUpperCase());
+}
+
+function clientLinkPermissions() {
+  return clientPermissions();
+}
+
+function clientLinks(clientId) {
+  return centreClientLinks.filter(link => link.clientId === clientId && link.status === 'active');
+}
+
+async function persistCentreClientLink(clientId, input) {
+  const practitionerUserId = String(input.practitionerUserId || '').trim();
+  const patientReference = String(input.patientReference || '').trim().toUpperCase();
+  if (!practitionerUserId && !patientReference) return null;
+  if (!practitionerUserId || !patientReference) throw new Error('Sélectionne le praticien et indique la référence patient Yulyf complète.');
+  if (!patientReferenceIsValid(patientReference)) throw new Error('La référence patient doit suivre le format YUL-2026-487949/P0001.');
+  const practitioner = centreMembers.find(member => member.userId === practitionerUserId);
+  if (!practitioner) throw new Error('Ce praticien ne fait pas partie du centre.');
+  const profile = memberProfile(practitioner);
+  const practitionerName = profile?.name || practitioner.userName || 'Praticien Yulyf';
+  const practitionerNumber = patientReference.split('/')[0];
+  const now = new Date().toISOString();
+  const dedupeKey = `${centreRow.$id}|${practitionerUserId}|${patientReference}`;
+  const existing = centreClientLinks.find(link => link.clientId === clientId && link.practitionerUserId === practitionerUserId);
+  const data = { centreId: centreRow.$id, teamId: centreRow.teamId, clientId, practitionerUserId, practitionerName, practitionerNumber, patientReference, yulyfPatientId: String(input.yulyfPatientId || existing?.yulyfPatientId || ''), status: 'active', dedupeKey, createdAt: existing?.createdAt || now, updatedAt: now };
+  return existing
+    ? tables.updateRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CLIENT_LINKS_TABLE_ID, rowId: existing.$id, data })
+    : executeClientGateway('createLink', data);
+}
+
+async function deleteCentreClient(clientId) {
+  const client = centreClients.find(item => item.$id === clientId);
+  if (!client) throw new Error('Ce client est introuvable.');
+  await Promise.all(clientLinks(clientId).map(link => tables.deleteRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CLIENT_LINKS_TABLE_ID, rowId: link.$id })));
+  await tables.deleteRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_CLIENTS_TABLE_ID, rowId: clientId });
+  editingClientId = '';
+  await refreshCentreClients();
+}
+
 async function uploadCentreLogo(file) {
   if (!centreRow) throw new Error('Le centre doit être créé avant d’ajouter son logo.');
   const previousFileId = centreRow.logoFileId || '';
@@ -481,6 +635,7 @@ async function loadCentre() {
       await refreshCentreMembers();
     }
     await refreshCentreLocations({ selectPrimary: true });
+    await refreshCentreClients();
   }
   return centreRow;
 }
@@ -522,7 +677,7 @@ function setupSteps() {
     ['identity', Boolean(setup.centreName && setup.publicName && setup.email && setup.phone && setup.address && setup.postal && setup.city && setup.country)],
     ['branding', Boolean(setup.logo)],
     ['locations', centreLocations.length > 0],
-    ['clients', setup.clientsReady],
+    ['clients', centreClients.length > 0],
     ['connections', Boolean(setup.calendarProvider && setup.emailProvider)],
     ['team', setup.teamReady],
     ['billing-settings', setup.billingReady],
@@ -611,6 +766,7 @@ function render(view, push = true) {
   if (push) history.pushState({ view }, '', `#${view}`);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (view === 'settings') renderSettings('overview');
+  if (view === 'patients') renderClientsView();
   const displayName = currentUser?.name || currentUser?.email || 'Administrateur';
   if (view === 'today') document.getElementById('dashboardGreeting').textContent = `Bonjour ${displayName}.`;
   if (view === 'support') document.getElementById('supportGreeting').textContent = `Bonjour ${displayName},`;
@@ -633,6 +789,97 @@ function memberRoleLabel(member) {
 
 function memberProfile(member) {
   return centreMemberProfiles.find(profile => profile.membershipId === member.$id) || null;
+}
+
+function practitionerMembers() {
+  return centreMembers.filter(member => member.roles?.includes('yc-praticien') || /praticien/i.test(memberProfile(member)?.name || member.userName || ''));
+}
+
+function practitionerOptions(selected = '') {
+  return `<option value="">Aucun dossier Yulyf relié</option>${practitionerMembers().map(member => {
+    const name = memberProfile(member)?.name || member.userName || member.userEmail;
+    return `<option value="${safeText(member.userId)}" ${member.userId === selected ? 'selected' : ''}>${safeText(name)}</option>`;
+  }).join('')}`;
+}
+
+function clientEditor() {
+  const client = centreClients.find(item => item.$id === editingClientId) || {};
+  const link = clientLinks(client.$id)[0] || {};
+  return `<form class="panel setup-form client-form" data-client-form><div class="location-form-title"><div><h3>${client.$id ? 'Modifier le client' : 'Ajouter un client'}</h3><p>La fiche reste administrative. La référence Yulyf relie le dossier sans en ouvrir le contenu.</p></div>${client.$id ? '<button type="button" class="outline" data-action="add-client">＋ Nouveau client</button>' : ''}</div><div class="setup-grid">${field('Prénom *', 'firstName', client.firstName, 'text', 'maxlength="128"')}${field('Nom *', 'lastName', client.lastName, 'text', 'maxlength="128"')}${field('E-mail', 'email', client.email, 'email', 'maxlength="320"')}${field('Téléphone', 'phone', client.phone, 'tel', 'maxlength="40"')}${field('Adresse', 'address', client.address, 'text', 'maxlength="320"')}${field('Code postal', 'postal', client.postal, 'text', 'maxlength="20"')}${field('Ville', 'city', client.city, 'text', 'maxlength="128"')}${field('Pays', 'country', client.country || 'Belgique', 'text', 'maxlength="64"')}</div><div class="client-link-fields"><label class="setup-field"><span>Praticien Yulyf</span><select name="practitionerUserId">${practitionerOptions(link.practitionerUserId)}</select></label>${field('N° patient fourni par Yulyf.me', 'patientReference', link.patientReference, 'text', 'maxlength="28" placeholder="YUL-2026-487949/P0001" pattern="YUL-[0-9]{4}-[0-9]{6}/P[0-9]{4}"')}</div><div class="privacy-callout compact"><div class="shield">↔</div><div><strong>Lien contrôlé</strong><p>La référence permet d’identifier le dossier chez le praticien. Le centre ne peut lire ni notes, ni analyses, ni documents privés.</p></div></div><div class="form-actions"><button class="primary" type="submit">${client.$id ? 'Enregistrer les modifications' : 'Enregistrer le client'}</button></div></form>`;
+}
+
+function clientsPanel() {
+  if (!centreClients.length) return '<article class="panel location-empty"><strong>Aucun client enregistré</strong><p>Ajoute une fiche administrative ou importe une liste ci-dessous.</p></article>';
+  return `<div class="client-list">${centreClients.map(client => {
+    const links = clientLinks(client.$id);
+    const refs = links.length ? links.map(link => `<span class="client-reference"><b>${safeText(link.patientReference)}</b><small>${safeText(link.practitionerName)}</small></span>`).join('') : '<span class="tag gold-tag">Non relié à Yulyf.me</span>';
+    return `<article class="panel client-card ${editingClientId === client.$id ? 'selected' : ''}"><span class="avatar aqua">${safeText(`${client.firstName?.[0] || ''}${client.lastName?.[0] || ''}`.toUpperCase())}</span><div><strong>${safeText(`${client.firstName} ${client.lastName}`)}</strong><small>${safeText(client.email || client.phone || 'Coordonnées à compléter')}</small></div><div class="client-references">${refs}</div><div class="location-actions"><button class="outline" data-client-edit="${safeText(client.$id)}">Modifier</button><button class="text-button danger" data-client-delete="${safeText(client.$id)}">Supprimer</button></div></article>`;
+  }).join('')}</div>`;
+}
+
+function renderClientsView() {
+  const body = document.querySelector('#patientsTable tbody');
+  if (!body) return;
+  body.innerHTML = centreClients.length ? centreClients.map(client => {
+    const links = clientLinks(client.$id);
+    const practitioners = links.length ? links.map(link => `<span class="client-reference"><b>${safeText(link.practitionerName)}</b><small>${safeText(link.patientReference)}</small></span>`).join('') : '<span class="tag gold-tag">Non relié</span>';
+    return `<tr><td><span class="avatar aqua">${safeText(`${client.firstName?.[0] || ''}${client.lastName?.[0] || ''}`.toUpperCase())}</span><strong>${safeText(`${client.firstName} ${client.lastName}`)}</strong></td><td>${safeText(client.phone || '—')}<br><small>${safeText(client.email || '—')}</small></td><td>${practitioners}</td><td>—</td><td><button class="row-menu" data-client-open="${safeText(client.$id)}">›</button></td></tr>`;
+  }).join('') : '<tr><td colspan="5"><div class="table-empty">Aucun client administratif enregistré pour ce centre.</div></td></tr>';
+  const count = document.querySelector('[data-client-count]');
+  if (count) count.textContent = `${centreClients.length} client${centreClients.length > 1 ? 's' : ''} actif${centreClients.length > 1 ? 's' : ''}`;
+}
+
+function normalizedHeader(value = '') {
+  return String(value).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+const clientHeaderMap = {
+  prenom: 'firstName', firstname: 'firstName', nom: 'lastName', lastname: 'lastName', email: 'email', courriel: 'email', telephone: 'phone', tel: 'phone', phone: 'phone', adresse: 'address', address: 'address', codepostal: 'postal', postal: 'postal', cp: 'postal', ville: 'city', city: 'city', pays: 'country', country: 'country',
+};
+const forbiddenClientHeaders = ['diagnostic', 'analyse', 'note', 'consentement', 'compterendu', 'medical', 'medication', 'traitement', 'pathologie'];
+
+function parseCsv(text) {
+  const firstLine = String(text).split(/\r?\n/, 1)[0] || '';
+  const delimiter = [';', ',', '\t'].sort((a, b) => firstLine.split(b).length - firstLine.split(a).length)[0];
+  const rows = []; let row = []; let cell = ''; let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === '"' && quoted && text[index + 1] === '"') { cell += '"'; index += 1; }
+    else if (char === '"') quoted = !quoted;
+    else if (char === delimiter && !quoted) { row.push(cell.trim()); cell = ''; }
+    else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && text[index + 1] === '\n') index += 1;
+      row.push(cell.trim()); cell = ''; if (row.some(Boolean)) rows.push(row); row = [];
+    } else cell += char;
+  }
+  row.push(cell.trim()); if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function prepareClientImport(rows) {
+  if (rows.length < 2) throw new Error('Le fichier doit contenir une ligne d’en-tête et au moins un client.');
+  if (rows.length > 501) throw new Error('L’import est limité à 500 clients par fichier.');
+  const normalized = rows[0].map(normalizedHeader);
+  const forbidden = normalized.filter(header => forbiddenClientHeaders.some(word => header.includes(word)));
+  if (forbidden.length) throw new Error('Import refusé : le fichier contient une colonne sensible. Retire les données médicales, notes, analyses et consentements.');
+  const mapped = normalized.map(header => clientHeaderMap[header] || '');
+  if (!mapped.includes('firstName') || !mapped.includes('lastName')) throw new Error('Les colonnes Prénom et Nom sont obligatoires.');
+  const seen = new Set(centreClients.map(item => item.dedupeKey));
+  clientImportRows = rows.slice(1).map((values, offset) => {
+    const data = { firstName: '', lastName: '', email: '', phone: '', address: '', postal: '', city: '', country: 'Belgique' };
+    mapped.forEach((key, index) => { if (key) data[key] = String(values[index] ?? '').trim(); });
+    const validation = validateCentreClient(data);
+    const dedupeKey = clientDedupeKey(data);
+    const duplicate = seen.has(dedupeKey);
+    if (!validation && !duplicate) seen.add(dedupeKey);
+    return { line: offset + 2, data, error: validation || (duplicate ? 'Doublon détecté' : '') };
+  });
+}
+
+function importPreview() {
+  const valid = clientImportRows.filter(row => !row.error);
+  const invalid = clientImportRows.filter(row => row.error);
+  return `<article class="panel import-ready"><span>${invalid.length ? '!' : '✓'}</span><div><strong>${valid.length} client${valid.length > 1 ? 's' : ''} prêt${valid.length > 1 ? 's' : ''} à enregistrer</strong><p>${invalid.length ? `${invalid.length} ligne${invalid.length > 1 ? 's' : ''} ignorée${invalid.length > 1 ? 's' : ''} : ${safeText(invalid.slice(0, 3).map(row => `ligne ${row.line}, ${row.error}`).join(' · '))}` : 'Aucun doublon ni champ invalide détecté.'}</p></div>${valid.length ? '<button class="primary" data-action="confirm-client-import">Confirmer l’import</button>' : ''}</article>`;
 }
 
 function membersPanel() {
@@ -720,9 +967,10 @@ function renderSettings(section) {
     locations: `${settingsHeader('Lieux et horaires d’activité', 'Chaque lieu est enregistré séparément dans Appwrite avec son adresse, ses salles et ses heures d’ouverture.', 'Étape 3')}
       ${locationsPanel()}
       <form class="panel setup-form location-form" data-location-form><div class="location-form-title"><div><h3>${editingLocationId ? 'Modifier le lieu' : 'Ajouter un lieu'}</h3><p>${editingLocationId ? 'Les modifications seront appliquées au lieu sélectionné.' : 'Le premier lieu créé devient automatiquement le lieu principal.'}</p></div>${editingLocationId ? '<button type="button" class="outline" data-action="add-location">＋ Nouveau lieu</button>' : ''}</div><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName, 'text', 'maxlength="128"')}${field('Nombre de salles *', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Adresse *', 'locationAddress', setup.locationAddress, 'text', 'maxlength="255"')}${field('Code postal *', 'locationPostal', setup.locationPostal, 'text', 'maxlength="24"')}${field('Ville *', 'locationCity', setup.locationCity, 'text', 'maxlength="96"')}${field('Pays *', 'locationCountry', setup.locationCountry, 'text', 'maxlength="96"')}</div>${weeklyScheduleEditor()}<label class="primary-location-choice"><input type="checkbox" name="isPrimary" ${(!centreLocations.length || centreLocations.find(item => item.$id === editingLocationId)?.isPrimary) ? 'checked' : ''}><span>Définir comme lieu principal du centre</span></label><div class="location-save-state ${locationDraftDirty || !editingLocationId ? 'unsaved' : 'saved'}" data-location-save-state>${locationDraftDirty || !editingLocationId ? '<strong>Non enregistré</strong><span>Valide le formulaire pour conserver ces informations dans Appwrite.</span>' : '<strong>Enregistré dans Appwrite</strong><span>Les informations resteront présentes après déconnexion ou rechargement.</span>'}</div><div class="form-actions"><button class="primary" type="submit">${editingLocationId ? 'Enregistrer les modifications' : 'Enregistrer le lieu'}</button></div></form>`,
-    clients: `${settingsHeader('Clients du centre', 'Crée un client manuellement ou importe une liste existante. Rien n’est enregistré avant confirmation.', 'Étape 4')}
-      <div class="setup-two-cols"><article class="panel setup-choice"><span class="choice-icon">＋</span><h3>Ajouter manuellement</h3><p>Nom, prénom, e-mail, téléphone, adresse et praticien du centre.</p><button class="outline" data-action="setup-manual-client">Créer un client fictif</button></article><article class="panel setup-choice"><span class="choice-icon">⇧</span><h3>Importer une liste</h3><p>CSV ou Excel. Les doublons seront signalés avant confirmation.</p><label class="primary file-button">Choisir un fichier fictif<input id="centreClientsInput" type="file" accept=".csv,.xlsx,text/csv" hidden></label></article></div><div id="clientImportPreview"></div>
-      <article class="panel data-boundary"><strong>Colonnes autorisées</strong><p>Prénom · Nom · E-mail · Téléphone · Adresse · Praticien du centre</p><strong>Colonnes refusées</strong><p>Diagnostic · Notes · Analyses · Consentements · Comptes rendus médicaux</p></article>`,
+    clients: `${settingsHeader('Clients du centre', 'Une fiche administrative unique peut être reliée à plusieurs dossiers Yulyf, un par praticien.', 'Étape 4')}
+      ${clientsPanel()}${clientEditor()}
+      <article class="panel import-box"><div><h3>Importer une liste existante</h3><p>CSV ou Excel · analyse locale · maximum 500 lignes. Rien n’est envoyé avant confirmation.</p></div><label class="primary file-button">Choisir un fichier<input id="centreClientsInput" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label></article><div id="clientImportPreview">${clientImportRows.length ? importPreview() : ''}</div>
+      <article class="panel data-boundary"><strong>Colonnes autorisées</strong><p>Prénom · Nom · E-mail · Téléphone · Adresse · Code postal · Ville · Pays</p><strong>Colonnes refusées</strong><p>Diagnostic · Notes · Analyses · Consentements · Comptes rendus médicaux</p></article>`,
     connections: `${settingsHeader('Agenda et messagerie', 'Le centre relie ses outils existants. Les rendez-vous administratifs sont synchronisés, jamais le contenu clinique.', 'Étape 5')}
       <div class="connection-block panel"><div><h3>Agenda du centre</h3><p>Synchronisation bidirectionnelle des créneaux et rendez-vous du centre.</p></div><div class="provider-grid"><button data-provider-type="calendarProvider" data-provider="Google" class="${setup.calendarProvider === 'Google' ? 'selected' : ''}"><b>G</b> Google Calendar<small>${setup.calendarProvider === 'Google' ? 'Sélectionné' : 'Choisir'}</small></button><button data-provider-type="calendarProvider" data-provider="Microsoft" class="${setup.calendarProvider === 'Microsoft' ? 'selected' : ''}"><b>M</b> Microsoft Outlook<small>${setup.calendarProvider === 'Microsoft' ? 'Sélectionné' : 'Choisir'}</small></button></div></div>
       <div class="connection-block panel"><div><h3>Adresse d’envoi du centre</h3><p>Les confirmations et rappels partiront de l’adresse officielle du centre.</p></div><div class="provider-grid"><button data-provider-type="emailProvider" data-provider="Gmail" class="${setup.emailProvider === 'Gmail' ? 'selected' : ''}"><b>G</b> Gmail<small>${setup.emailProvider === 'Gmail' ? 'Sélectionné' : 'Choisir'}</small></button><button data-provider-type="emailProvider" data-provider="Microsoft" class="${setup.emailProvider === 'Microsoft' ? 'selected' : ''}"><b>M</b> Outlook / Microsoft 365<small>${setup.emailProvider === 'Microsoft' ? 'Sélectionné' : 'Choisir'}</small></button><button data-provider-type="emailProvider" data-provider="Autre" class="${setup.emailProvider === 'Autre' ? 'selected' : ''}"><b>@</b> OVH ou autre<small>${setup.emailProvider === 'Autre' ? 'Sélectionné' : 'Choisir'}</small></button></div></div><p class="setup-note">Dans cette maquette, le choix est mémorisé sans lancer une connexion réelle. Le raccordement OAuth sera réalisé dans la couche Appwrite.</p>`,
@@ -813,6 +1061,24 @@ document.addEventListener('click', async event => {
     return;
   }
 
+  const clientEdit = event.target.closest('[data-client-edit], [data-client-open]');
+  if (clientEdit) {
+    editingClientId = clientEdit.dataset.clientEdit || clientEdit.dataset.clientOpen;
+    render('settings');
+    renderSettings('clients');
+    return;
+  }
+
+  const clientDelete = event.target.closest('[data-client-delete]');
+  if (clientDelete) {
+    const client = centreClients.find(item => item.$id === clientDelete.dataset.clientDelete);
+    if (!client || !confirm(`Supprimer la fiche administrative de ${client.firstName} ${client.lastName} et ses liaisons YulyfCentre ?`)) return;
+    clientDelete.disabled = true;
+    try { await deleteCentreClient(client.$id); renderSettings('clients'); showToast('Client et liaisons supprimés du centre.'); }
+    catch (error) { clientDelete.disabled = false; showToast(error.message || appwriteMessage(error)); }
+    return;
+  }
+
   const memberRemove = event.target.closest('[data-member-remove]');
   if (memberRemove) {
     const member = centreMembers.find(item => item.$id === memberRemove.dataset.memberRemove);
@@ -846,7 +1112,7 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
   if (!action) return;
   if (action.dataset.action === 'logout') {
-    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; editingLocationId = ''; locationDraftDirty = false; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
+    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; centreClients = []; centreClientLinks = []; clientImportRows = []; editingClientId = ''; editingLocationId = ''; locationDraftDirty = false; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
   }
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',
@@ -882,7 +1148,17 @@ document.addEventListener('click', async event => {
     renderSettings('locations');
     return;
   }
-  if (action.dataset.action === 'setup-manual-client') saveSetup({ clientsReady: true });
+  if (action.dataset.action === 'add-client') { editingClientId = ''; renderSettings('clients'); return; }
+  if (action.dataset.action === 'new-patient') { editingClientId = ''; render('settings'); renderSettings('clients'); return; }
+  if (action.dataset.action === 'confirm-client-import') {
+    action.disabled = true;
+    const validRows = clientImportRows.filter(row => !row.error);
+    try {
+      for (const row of validRows) { editingClientId = ''; await persistCentreClient(row.data, 'import'); }
+      clientImportRows = []; editingClientId = ''; renderSettings('clients'); showToast(`${validRows.length} client${validRows.length > 1 ? 's' : ''} enregistré${validRows.length > 1 ? 's' : ''} dans Appwrite.`);
+    } catch (error) { action.disabled = false; showToast(error.message || appwriteMessage(error)); }
+    return;
+  }
   if (action.dataset.action === 'setup-team-ready') saveSetup({ teamReady: true });
   if (action.dataset.action === 'cancel-access-edit') {
     saveSetup({ accessName: '', accessEmail: '', accessMembershipId: '', accessRole: 'Accueil', rolePermissions: { ...setupDefaults.rolePermissions } });
@@ -940,6 +1216,25 @@ document.addEventListener('submit', async event => {
     } catch (error) { submit.disabled = false; showToast(error.message || appwriteMessage(error)); }
     return;
   }
+  const clientForm = event.target.closest('[data-client-form]');
+  if (clientForm) {
+    event.preventDefault();
+    const input = Object.fromEntries(new FormData(clientForm).entries());
+    const submit = clientForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try {
+      if ((input.practitionerUserId || input.patientReference) && (!input.practitionerUserId || !patientReferenceIsValid(input.patientReference))) {
+        throw new Error('Pour relier Yulyf.me, sélectionne le praticien et utilise une référence comme YUL-2026-487949/P0001.');
+      }
+      const saved = await persistCentreClient(input, 'manual');
+      await persistCentreClientLink(saved.$id, input);
+      await refreshCentreClients();
+      editingClientId = saved.$id;
+      renderSettings('clients');
+      showToast('Client et liaison Yulyf enregistrés dans Appwrite.');
+    } catch (error) { submit.disabled = false; showToast(error.message || appwriteMessage(error)); }
+    return;
+  }
   const form = event.target.closest('[data-setup-form]');
   if (!form) return;
   event.preventDefault();
@@ -994,10 +1289,17 @@ document.addEventListener('change', async event => {
   if (event.target.id === 'centreClientsInput') {
     const file = event.target.files?.[0];
     if (!file) return;
-    const preview = document.getElementById('clientImportPreview');
-    const finish = count => { saveSetup({ clientsReady: true }); preview.innerHTML = `<article class="panel import-ready"><span>✓</span><div><strong>${count} ligne${count > 1 ? 's' : ''} prête${count > 1 ? 's' : ''} à vérifier</strong><p>${file.name} · aucune donnée n’a été envoyée.</p></div><button class="primary" data-action="confirm-demo-import">Confirmer l’import fictif</button></article>`; showToast('Fichier analysé localement dans la démonstration.'); };
-    if (file.name.toLowerCase().endsWith('.csv')) { const reader = new FileReader(); reader.onload = () => finish(Math.max(1, String(reader.result).trim().split(/\r?\n/).length - 1)); reader.readAsText(file); }
-    else finish(1);
+    if (file.size > 2_000_000) return showToast('Le fichier doit peser moins de 2 Mo.');
+    try {
+      const rows = file.name.toLowerCase().endsWith('.csv') ? parseCsv(await file.text()) : await readXlsxFile(file);
+      prepareClientImport(rows);
+      const preview = document.getElementById('clientImportPreview');
+      if (preview) preview.innerHTML = importPreview();
+      showToast('Fichier analysé localement. Vérifie le résumé avant confirmation.');
+    } catch (error) {
+      clientImportRows = [];
+      showToast(error.message || 'Ce fichier ne peut pas être importé.');
+    }
   }
 });
 
