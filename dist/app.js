@@ -20,6 +20,7 @@ let centreMembers = [];
 let centreMemberProfiles = [];
 let centreLocations = [];
 let editingLocationId = '';
+let locationDraftDirty = false;
 
 const permissionKeys = ['dashboard', 'clients', 'practitioners', 'agenda', 'requests', 'billing', 'documents', 'statistics', 'settings'];
 const viewPermissionKeys = { today: 'dashboard', patients: 'clients', practitioners: 'practitioners', agenda: 'agenda', requests: 'requests', billing: 'billing', documents: 'documents', statistics: 'statistics', settings: 'settings', portal: 'clients' };
@@ -286,6 +287,7 @@ async function refreshCentreLocations({ selectPrimary = false } = {}) {
   if (selectPrimary && centreLocations.length) {
     const location = centreLocations.find(item => item.isPrimary) || centreLocations[0];
     editingLocationId = location.$id;
+    locationDraftDirty = false;
     saveSetup(locationSetup(location));
   }
 }
@@ -359,6 +361,7 @@ async function persistLocation(makePrimary = false) {
   }
   await refreshCentreLocations();
   saveSetup(locationSetup(saved));
+  locationDraftDirty = false;
   return saved;
 }
 
@@ -368,6 +371,7 @@ async function deleteLocation(locationId) {
   if (location.isPrimary && centreLocations.length > 1) throw new Error('Définis un autre lieu principal avant de supprimer celui-ci.');
   await tables.deleteRow({ databaseId: APPWRITE_DATABASE_ID, tableId: APPWRITE_LOCATIONS_TABLE_ID, rowId: locationId });
   editingLocationId = '';
+  locationDraftDirty = false;
   await refreshCentreLocations();
   saveSetup(locationSetup(null));
 }
@@ -655,7 +659,7 @@ function renderSettings(section) {
       <div class="panel branding-setup"><label class="logo-drop"><span>◉</span><div><strong>${setup.logo ? 'Remplacer le logo' : 'Choisir le logo du centre'}</strong><small>PNG, JPG ou WEBP · 150 Ko maximum · métadonnées retirées</small></div><input id="centreLogoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><div class="logo-preview ${setup.logo ? 'has-logo' : ''}">${setup.logo ? `<img src="${safeText(setup.logo)}" alt="Logo de ${safeText(setup.publicName || setup.centreName)}">` : `<span>${safeText(centreInitials())}</span>`}<div><strong>Aperçu de l’identité du centre</strong><small>${safeText(setup.publicName || setup.centreName)}</small><em>${setup.logo ? 'Logo enregistré dans Appwrite' : 'Initiales utilisées tant qu’aucun logo n’est ajouté'}</em></div></div>${setup.logo ? '<button class="outline" data-action="remove-centre-logo">Retirer définitivement le logo</button>' : ''}<p class="setup-note">Ce logo public identifiera le centre dans YulyfCentre, puis dans son portail client, ses e-mails administratifs et ses factures. Seul un administrateur du centre peut le remplacer ou le supprimer.</p></div>`,
     locations: `${settingsHeader('Lieux et horaires d’activité', 'Chaque lieu est enregistré séparément dans Appwrite avec son adresse, ses salles et ses heures d’ouverture.', 'Étape 3')}
       ${locationsPanel()}
-      <form class="panel setup-form location-form" data-location-form><div class="location-form-title"><div><h3>${editingLocationId ? 'Modifier le lieu' : 'Ajouter un lieu'}</h3><p>${editingLocationId ? 'Les modifications seront appliquées au lieu sélectionné.' : 'Le premier lieu créé devient automatiquement le lieu principal.'}</p></div>${editingLocationId ? '<button type="button" class="outline" data-action="add-location">＋ Nouveau lieu</button>' : ''}</div><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName, 'text', 'maxlength="128"')}${field('Nombre de salles *', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Adresse *', 'locationAddress', setup.locationAddress, 'text', 'maxlength="255"')}${field('Code postal *', 'locationPostal', setup.locationPostal, 'text', 'maxlength="24"')}${field('Ville *', 'locationCity', setup.locationCity, 'text', 'maxlength="96"')}${field('Pays *', 'locationCountry', setup.locationCountry, 'text', 'maxlength="96"')}${field('Ouverture *', 'openStart', setup.openStart, 'time')}${field('Fermeture *', 'openEnd', setup.openEnd, 'time')}</div><div class="weekday-picker"><span>Jours d’ouverture *</span>${['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(day => `<button type="button" data-opening-day="${day}" class="${setup.openingDays.includes(day) ? 'selected' : ''}">${day}</button>`).join('')}</div><label class="primary-location-choice"><input type="checkbox" name="isPrimary" ${(!centreLocations.length || centreLocations.find(item => item.$id === editingLocationId)?.isPrimary) ? 'checked' : ''}><span>Définir comme lieu principal du centre</span></label><div class="form-actions"><button class="primary" type="submit">${editingLocationId ? 'Enregistrer les modifications' : 'Ajouter le lieu'}</button></div></form>`,
+      <form class="panel setup-form location-form" data-location-form><div class="location-form-title"><div><h3>${editingLocationId ? 'Modifier le lieu' : 'Ajouter un lieu'}</h3><p>${editingLocationId ? 'Les modifications seront appliquées au lieu sélectionné.' : 'Le premier lieu créé devient automatiquement le lieu principal.'}</p></div>${editingLocationId ? '<button type="button" class="outline" data-action="add-location">＋ Nouveau lieu</button>' : ''}</div><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName, 'text', 'maxlength="128"')}${field('Nombre de salles *', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Adresse *', 'locationAddress', setup.locationAddress, 'text', 'maxlength="255"')}${field('Code postal *', 'locationPostal', setup.locationPostal, 'text', 'maxlength="24"')}${field('Ville *', 'locationCity', setup.locationCity, 'text', 'maxlength="96"')}${field('Pays *', 'locationCountry', setup.locationCountry, 'text', 'maxlength="96"')}${field('Ouverture *', 'openStart', setup.openStart, 'time')}${field('Fermeture *', 'openEnd', setup.openEnd, 'time')}</div><div class="weekday-picker"><span>Jours d’ouverture *</span>${['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(day => `<button type="button" data-opening-day="${day}" class="${setup.openingDays.includes(day) ? 'selected' : ''}">${day}</button>`).join('')}</div><label class="primary-location-choice"><input type="checkbox" name="isPrimary" ${(!centreLocations.length || centreLocations.find(item => item.$id === editingLocationId)?.isPrimary) ? 'checked' : ''}><span>Définir comme lieu principal du centre</span></label><div class="location-save-state ${locationDraftDirty || !editingLocationId ? 'unsaved' : 'saved'}" data-location-save-state>${locationDraftDirty || !editingLocationId ? '<strong>Non enregistré</strong><span>Valide le formulaire pour conserver ces informations dans Appwrite.</span>' : '<strong>Enregistré dans Appwrite</strong><span>Les informations resteront présentes après déconnexion ou rechargement.</span>'}</div><div class="form-actions"><button class="primary" type="submit">${editingLocationId ? 'Enregistrer les modifications' : 'Enregistrer le lieu'}</button></div></form>`,
     clients: `${settingsHeader('Clients du centre', 'Crée un client manuellement ou importe une liste existante. Rien n’est enregistré avant confirmation.', 'Étape 4')}
       <div class="setup-two-cols"><article class="panel setup-choice"><span class="choice-icon">＋</span><h3>Ajouter manuellement</h3><p>Nom, prénom, e-mail, téléphone, adresse et praticien du centre.</p><button class="outline" data-action="setup-manual-client">Créer un client fictif</button></article><article class="panel setup-choice"><span class="choice-icon">⇧</span><h3>Importer une liste</h3><p>CSV ou Excel. Les doublons seront signalés avant confirmation.</p><label class="primary file-button">Choisir un fichier fictif<input id="centreClientsInput" type="file" accept=".csv,.xlsx,text/csv" hidden></label></article></div><div id="clientImportPreview"></div>
       <article class="panel data-boundary"><strong>Colonnes autorisées</strong><p>Prénom · Nom · E-mail · Téléphone · Adresse · Praticien du centre</p><strong>Colonnes refusées</strong><p>Diagnostic · Notes · Analyses · Consentements · Comptes rendus médicaux</p></article>`,
@@ -694,7 +698,10 @@ document.addEventListener('click', async event => {
     const day = openingDay.dataset.openingDay;
     const openingDays = setup.openingDays.includes(day) ? setup.openingDays.filter(item => item !== day) : [...setup.openingDays, day];
     saveSetup({ openingDays });
+    locationDraftDirty = true;
     openingDay.classList.toggle('selected');
+    const saveState = openingDay.closest('[data-location-form]')?.querySelector('[data-location-save-state]');
+    if (saveState) { saveState.className = 'location-save-state unsaved'; saveState.innerHTML = '<strong>Non enregistré</strong><span>Valide le formulaire pour conserver ces informations dans Appwrite.</span>'; }
     return;
   }
   const nav = event.target.closest('[data-view]');
@@ -718,6 +725,7 @@ document.addEventListener('click', async event => {
     const location = centreLocations.find(item => item.$id === locationEdit.dataset.locationEdit);
     if (!location) return showToast('Ce lieu est introuvable.');
     editingLocationId = location.$id;
+    locationDraftDirty = false;
     saveSetup(locationSetup(location));
     renderSettings('locations');
     return;
@@ -779,7 +787,7 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
   if (!action) return;
   if (action.dataset.action === 'logout') {
-    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; editingLocationId = ''; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
+    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; editingLocationId = ''; locationDraftDirty = false; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
   }
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',
@@ -810,6 +818,7 @@ document.addEventListener('click', async event => {
   }
   if (action.dataset.action === 'add-location') {
     editingLocationId = '';
+    locationDraftDirty = false;
     saveSetup(locationSetup(null));
     renderSettings('locations');
     return;
@@ -881,6 +890,11 @@ document.addEventListener('submit', async event => {
 });
 
 document.addEventListener('change', async event => {
+  if (event.target.matches('[data-location-form] input[name="isPrimary"]')) {
+    locationDraftDirty = true;
+    const saveState = event.target.closest('[data-location-form]')?.querySelector('[data-location-save-state]');
+    if (saveState) { saveState.className = 'location-save-state unsaved'; saveState.innerHTML = '<strong>Non enregistré</strong><span>Valide le formulaire pour conserver ces informations dans Appwrite.</span>'; }
+  }
   if (event.target.id === 'rolePreset') {
     const presets = {
       'Accueil': { dashboard: 'edit', clients: 'view', practitioners: 'none', agenda: 'edit', requests: 'edit', billing: 'none', documents: 'view', statistics: 'none', settings: 'none' },
@@ -929,6 +943,13 @@ document.addEventListener('change', async event => {
 });
 
 document.addEventListener('input', event => {
+  const locationField = event.target.closest('[data-location-form] input[name]');
+  if (locationField && locationField.name !== 'isPrimary') {
+    saveSetup({ [locationField.name]: locationField.value });
+    locationDraftDirty = true;
+    const saveState = locationField.closest('[data-location-form]')?.querySelector('[data-location-save-state]');
+    if (saveState) { saveState.className = 'location-save-state unsaved'; saveState.innerHTML = '<strong>Non enregistré</strong><span>Valide le formulaire pour conserver ces informations dans Appwrite.</span>'; }
+  }
   if (event.target.matches('[data-access-field]')) saveSetup({ [event.target.name]: event.target.value });
   const id = event.target.dataset.tableSearch;
   if (!id) return;
