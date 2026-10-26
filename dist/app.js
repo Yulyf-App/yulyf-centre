@@ -25,6 +25,30 @@ let locationDraftDirty = false;
 const permissionKeys = ['dashboard', 'clients', 'practitioners', 'agenda', 'requests', 'billing', 'documents', 'statistics', 'settings'];
 const viewPermissionKeys = { today: 'dashboard', patients: 'clients', practitioners: 'practitioners', agenda: 'agenda', requests: 'requests', billing: 'billing', documents: 'documents', statistics: 'statistics', settings: 'settings', portal: 'clients' };
 const roleLabels = { 'yc-admin': 'Administrateur du centre', 'yc-accueil': 'Accueil', 'yc-comptabilite': 'Comptabilité', 'yc-praticien': 'Praticien', 'yc-personnalise': 'Personnalisé' };
+const weekDays = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+
+function defaultWeeklySchedule(openingDays = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven'], openStart = '08:00', openEnd = '20:00') {
+  return Object.fromEntries(weekDays.map(day => [day, {
+    enabled: openingDays.includes(day),
+    slots: [{ start: openingDays.includes(day) ? openStart : '', end: openingDays.includes(day) ? openEnd : '' }, { start: '', end: '' }],
+  }]));
+}
+
+function normalizeWeeklySchedule(value, fallbackDays = [], fallbackStart = '', fallbackEnd = '') {
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed || '{}'); } catch { parsed = {}; }
+  }
+  const fallback = defaultWeeklySchedule(fallbackDays, fallbackStart, fallbackEnd);
+  return Object.fromEntries(weekDays.map(day => {
+    const source = parsed && typeof parsed === 'object' ? parsed[day] : null;
+    const slots = Array.isArray(source?.slots) ? source.slots.slice(0, 2) : fallback[day].slots;
+    return [day, {
+      enabled: typeof source?.enabled === 'boolean' ? source.enabled : fallback[day].enabled,
+      slots: [0, 1].map(index => ({ start: String(slots[index]?.start || ''), end: String(slots[index]?.end || '') })),
+    }];
+  }));
+}
 
 const views = {
   today: "Aujourd'hui",
@@ -50,7 +74,7 @@ const setupDefaults = {
   centreName: 'Centre technique Z', publicName: 'Centre technique Z', email: 'centre-technique-z@example.test', phone: '+32 81 00 00 00',
   company: 'Centre technique Z', vat: 'BE 0000.000.000', address: 'Adresse fictive de démonstration', postal: '5000', city: 'Namur', country: 'Belgique',
   language: 'Français', timezone: 'Europe/Brussels', website: '', logo: '', locationName: 'Centre technique Z · Namur', locationAddress: 'Adresse fictive de démonstration', locationPostal: '5000', locationCity: 'Namur', locationCountry: 'Belgique', roomCount: '4',
-  openStart: '08:00', openEnd: '20:00', openingDays: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven'], clientsReady: false, calendarProvider: '', emailProvider: '', teamReady: false,
+  openStart: '08:00', openEnd: '20:00', openingDays: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven'], weeklySchedule: defaultWeeklySchedule(), clientsReady: false, calendarProvider: '', emailProvider: '', teamReady: false,
   billingReady: false, notificationsReady: false, termsReady: false
   ,accessName: '', accessEmail: '', accessRole: 'Accueil', accessMembershipId: '', rolePermissions: { dashboard: 'edit', clients: 'view', practitioners: 'none', agenda: 'edit', requests: 'edit', billing: 'none', documents: 'view', statistics: 'none', settings: 'none' }
 };
@@ -89,14 +113,18 @@ function isCentreOwner() {
 }
 
 function loadSetup() {
-  try { return { ...setupDefaults, ...JSON.parse(localStorage.getItem(setupKey) || '{}') }; }
+  try {
+    const loaded = { ...setupDefaults, ...JSON.parse(localStorage.getItem(setupKey) || '{}') };
+    loaded.weeklySchedule = normalizeWeeklySchedule(loaded.weeklySchedule, loaded.openingDays, loaded.openStart, loaded.openEnd);
+    return loaded;
+  }
   catch { return { ...setupDefaults }; }
 }
 
 function newCentreSetup(email) {
   return {
     centreName: '', publicName: '', email, phone: '', company: '', vat: '', website: '', address: '', postal: '', city: '', country: 'Belgique',
-    language: 'Français', timezone: 'Europe/Brussels', logo: '', locationName: '', locationAddress: '', locationPostal: '', locationCity: '', locationCountry: 'Belgique', roomCount: '', openStart: '', openEnd: '', openingDays: [],
+    language: 'Français', timezone: 'Europe/Brussels', logo: '', locationName: '', locationAddress: '', locationPostal: '', locationCity: '', locationCountry: 'Belgique', roomCount: '', openStart: '', openEnd: '', openingDays: [], weeklySchedule: defaultWeeklySchedule([], '', ''),
     clientsReady: false, calendarProvider: '', emailProvider: '', teamReady: false, billingReady: false, notificationsReady: false, termsReady: false,
   };
 }
@@ -255,6 +283,7 @@ function applyCentreRow(row) {
     locationPostal: row.postal || '',
     locationCity: row.city || '',
     locationCountry: row.country || 'Belgique',
+    weeklySchedule: defaultWeeklySchedule(row.openingDays || [], row.openStart || '', row.openEnd || ''),
     logo: logoView(row.logoFileId),
   });
   document.querySelector('.centre-switcher strong').textContent = row.publicName || row.name || 'Mon centre';
@@ -263,6 +292,7 @@ function applyCentreRow(row) {
 }
 
 function locationSetup(location) {
+  const weeklySchedule = normalizeWeeklySchedule(location?.weeklySchedule, location?.openingDays || [], location?.openStart || '', location?.openEnd || '');
   return {
     locationName: location?.name || '',
     locationAddress: location?.address || '',
@@ -273,6 +303,7 @@ function locationSetup(location) {
     openStart: location?.openStart || '',
     openEnd: location?.openEnd || '',
     openingDays: location?.openingDays || [],
+    weeklySchedule,
   };
 }
 
@@ -311,8 +342,16 @@ function locationPermissions() {
 function validateLocation(data) {
   if (!data.name || !data.address || !data.postal || !data.city || !data.country) return 'Complète le nom et l’adresse du lieu.';
   if (!Number.isInteger(data.roomCount) || data.roomCount < 1 || data.roomCount > 99) return 'Le nombre de salles doit être compris entre 1 et 99.';
-  if (!data.openStart || !data.openEnd || data.openStart >= data.openEnd) return 'Indique des heures d’ouverture et de fermeture valides.';
-  if (!data.openingDays.length) return 'Choisis au moins un jour d’ouverture.';
+  const schedule = normalizeWeeklySchedule(data.weeklySchedule);
+  const openDays = weekDays.filter(day => schedule[day].enabled);
+  if (!openDays.length) return 'Choisis au moins un jour d’ouverture.';
+  for (const day of openDays) {
+    const [first, second] = schedule[day].slots;
+    if (!first.start || !first.end || first.start >= first.end) return `${day} : complète une première plage horaire valide.`;
+    const secondHasValue = Boolean(second.start || second.end);
+    if (secondHasValue && (!second.start || !second.end || second.start >= second.end)) return `${day} : complète entièrement la deuxième plage horaire.`;
+    if (secondHasValue && second.start < first.end) return `${day} : la deuxième plage doit commencer après la fin de la première.`;
+  }
   return '';
 }
 
@@ -321,6 +360,9 @@ async function persistLocation(makePrimary = false) {
   const now = new Date().toISOString();
   const existing = centreLocations.find(item => item.$id === editingLocationId) || null;
   const isPrimary = makePrimary || !centreLocations.length || Boolean(existing?.isPrimary);
+  const weeklySchedule = normalizeWeeklySchedule(setup.weeklySchedule, setup.openingDays, setup.openStart, setup.openEnd);
+  const openingDays = weekDays.filter(day => weeklySchedule[day].enabled);
+  const openSlots = openingDays.flatMap(day => weeklySchedule[day].slots.filter(slot => slot.start && slot.end));
   const data = {
     centreId: centreRow.$id,
     teamId: centreRow.teamId,
@@ -330,9 +372,10 @@ async function persistLocation(makePrimary = false) {
     city: setup.locationCity.trim(),
     country: setup.locationCountry.trim(),
     roomCount: Number(setup.roomCount),
-    openStart: setup.openStart,
-    openEnd: setup.openEnd,
-    openingDays: setup.openingDays,
+    openStart: openSlots.map(slot => slot.start).sort()[0] || '',
+    openEnd: openSlots.map(slot => slot.end).sort().at(-1) || '',
+    openingDays,
+    weeklySchedule: JSON.stringify(weeklySchedule),
     isPrimary,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
@@ -544,7 +587,7 @@ function applyViewPermission(view) {
   notice.className = 'readonly-notice';
   notice.textContent = '◉ Lecture seule · ton rôle permet de consulter cet onglet sans le modifier.';
   content.prepend(notice);
-  content.querySelectorAll('input, textarea, select, button[data-action], button[data-setup-section], button[data-opening-day], button[data-provider-type], button[data-setup-toggle]').forEach(control => { control.disabled = true; });
+  content.querySelectorAll('input, textarea, select, button[data-action], button[data-setup-section], button[data-schedule-day], button[data-provider-type], button[data-setup-toggle]').forEach(control => { control.disabled = true; });
 }
 
 function showToast(message) {
@@ -597,9 +640,26 @@ function membersPanel() {
   return `<article class="panel member-list"><div class="panel-head"><div><h3>Accès existants</h3><p>${centreMembers.length} personne${centreMembers.length > 1 ? 's' : ''} rattachée${centreMembers.length > 1 ? 's' : ''} à ce centre.</p></div></div>${centreMembers.map(member => { const profile = memberProfile(member); const name = profile?.name || member.userName || 'Membre du centre'; const email = profile?.email || member.userEmail || ''; return `<div class="member-row"><span class="avatar">${safeText(name.charAt(0).toUpperCase())}</span><div><strong>${safeText(name)}</strong><small>${safeText(email)}</small></div><span class="tag ${member.confirm ? 'mint-tag' : 'gold-tag'}">${member.confirm ? 'Actif' : 'Invitation envoyée'}</span><b>${safeText(memberRoleLabel(member))}</b>${member.roles?.includes('owner') ? '<em>Accès complet</em>' : `<div class="member-actions"><button class="outline" data-member-edit="${safeText(member.$id)}">Modifier</button><button class="text-button danger" data-member-remove="${safeText(member.$id)}">Retirer</button></div>`}</div>`; }).join('')}</article>`;
 }
 
+function locationScheduleLines(location) {
+  const schedule = normalizeWeeklySchedule(location.weeklySchedule, location.openingDays || [], location.openStart || '', location.openEnd || '');
+  return weekDays.filter(day => schedule[day].enabled).map(day => {
+    const slots = schedule[day].slots.filter(slot => slot.start && slot.end).map(slot => `${slot.start}–${slot.end}`).join(' / ');
+    return `<span><b>${day}</b>${safeText(slots)}</span>`;
+  }).join('');
+}
+
+function weeklyScheduleEditor() {
+  const schedule = normalizeWeeklySchedule(setup.weeklySchedule, setup.openingDays, setup.openStart, setup.openEnd);
+  return `<div class="weekly-schedule"><div class="weekly-schedule-head"><strong>Horaires par jour *</strong><span>Active les jours ouverts. La deuxième plage est facultative.</span></div>${weekDays.map(day => {
+    const config = schedule[day];
+    const timeInput = (slot, part, label) => `<label><span>${label}</span><input type="time" value="${safeText(config.slots[slot][part])}" data-schedule-time data-day="${day}" data-slot="${slot}" data-part="${part}" ${config.enabled ? '' : 'disabled'}></label>`;
+    return `<div class="schedule-day ${config.enabled ? 'open' : 'closed'}"><div class="schedule-day-title"><strong>${day}</strong><button type="button" class="${config.enabled ? 'open' : ''}" data-schedule-day="${day}" aria-pressed="${config.enabled}">${config.enabled ? 'Ouvert' : 'Fermé'}</button></div><div class="schedule-slot"><b>Plage 1</b>${timeInput(0, 'start', 'De')}${timeInput(0, 'end', 'À')}</div><div class="schedule-slot secondary"><b>Plage 2 <small>facultative</small></b>${timeInput(1, 'start', 'De')}${timeInput(1, 'end', 'À')}</div></div>`;
+  }).join('')}</div>`;
+}
+
 function locationsPanel() {
   if (!centreLocations.length) return '<article class="panel location-empty"><strong>Aucun lieu enregistré</strong><p>Complète le formulaire ci-dessous pour créer le premier lieu du centre.</p></article>';
-  return `<div class="location-list">${centreLocations.map(location => `<article class="panel location-card ${location.$id === editingLocationId ? 'selected' : ''}"><div><span class="location-pin">⌖</span><div><strong>${safeText(location.name)}</strong><small>${safeText(`${location.address}, ${location.postal} ${location.city} · ${location.country}`)}</small><em>${safeText((location.openingDays || []).join(' · '))} · ${safeText(location.openStart)}–${safeText(location.openEnd)} · ${location.roomCount} salle${location.roomCount > 1 ? 's' : ''}</em></div></div><div class="location-actions">${location.isPrimary ? '<span class="tag mint-tag">Lieu principal</span>' : ''}<button class="outline" data-location-edit="${safeText(location.$id)}">Modifier</button><button class="text-button danger" data-location-delete="${safeText(location.$id)}">Supprimer</button></div></article>`).join('')}</div>`;
+  return `<div class="location-list">${centreLocations.map(location => `<article class="panel location-card ${location.$id === editingLocationId ? 'selected' : ''}"><div><span class="location-pin">⌖</span><div><strong>${safeText(location.name)}</strong><small>${safeText(`${location.address}, ${location.postal} ${location.city} · ${location.country}`)} · ${location.roomCount} salle${location.roomCount > 1 ? 's' : ''}</small><em class="location-schedule-summary">${locationScheduleLines(location)}</em></div></div><div class="location-actions">${location.isPrimary ? '<span class="tag mint-tag">Lieu principal</span>' : ''}<button class="outline" data-location-edit="${safeText(location.$id)}">Modifier</button><button class="text-button danger" data-location-delete="${safeText(location.$id)}">Supprimer</button></div></article>`).join('')}</div>`;
 }
 
 async function refreshCentreMembers() {
@@ -659,7 +719,7 @@ function renderSettings(section) {
       <div class="panel branding-setup"><label class="logo-drop"><span>◉</span><div><strong>${setup.logo ? 'Remplacer le logo' : 'Choisir le logo du centre'}</strong><small>PNG, JPG ou WEBP · 150 Ko maximum · métadonnées retirées</small></div><input id="centreLogoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden></label><div class="logo-preview ${setup.logo ? 'has-logo' : ''}">${setup.logo ? `<img src="${safeText(setup.logo)}" alt="Logo de ${safeText(setup.publicName || setup.centreName)}">` : `<span>${safeText(centreInitials())}</span>`}<div><strong>Aperçu de l’identité du centre</strong><small>${safeText(setup.publicName || setup.centreName)}</small><em>${setup.logo ? 'Logo enregistré dans Appwrite' : 'Initiales utilisées tant qu’aucun logo n’est ajouté'}</em></div></div>${setup.logo ? '<button class="outline" data-action="remove-centre-logo">Retirer définitivement le logo</button>' : ''}<p class="setup-note">Ce logo public identifiera le centre dans YulyfCentre, puis dans son portail client, ses e-mails administratifs et ses factures. Seul un administrateur du centre peut le remplacer ou le supprimer.</p></div>`,
     locations: `${settingsHeader('Lieux et horaires d’activité', 'Chaque lieu est enregistré séparément dans Appwrite avec son adresse, ses salles et ses heures d’ouverture.', 'Étape 3')}
       ${locationsPanel()}
-      <form class="panel setup-form location-form" data-location-form><div class="location-form-title"><div><h3>${editingLocationId ? 'Modifier le lieu' : 'Ajouter un lieu'}</h3><p>${editingLocationId ? 'Les modifications seront appliquées au lieu sélectionné.' : 'Le premier lieu créé devient automatiquement le lieu principal.'}</p></div>${editingLocationId ? '<button type="button" class="outline" data-action="add-location">＋ Nouveau lieu</button>' : ''}</div><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName, 'text', 'maxlength="128"')}${field('Nombre de salles *', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Adresse *', 'locationAddress', setup.locationAddress, 'text', 'maxlength="255"')}${field('Code postal *', 'locationPostal', setup.locationPostal, 'text', 'maxlength="24"')}${field('Ville *', 'locationCity', setup.locationCity, 'text', 'maxlength="96"')}${field('Pays *', 'locationCountry', setup.locationCountry, 'text', 'maxlength="96"')}${field('Ouverture *', 'openStart', setup.openStart, 'time')}${field('Fermeture *', 'openEnd', setup.openEnd, 'time')}</div><div class="weekday-picker"><span>Jours d’ouverture *</span>${['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'].map(day => `<button type="button" data-opening-day="${day}" class="${setup.openingDays.includes(day) ? 'selected' : ''}">${day}</button>`).join('')}</div><label class="primary-location-choice"><input type="checkbox" name="isPrimary" ${(!centreLocations.length || centreLocations.find(item => item.$id === editingLocationId)?.isPrimary) ? 'checked' : ''}><span>Définir comme lieu principal du centre</span></label><div class="location-save-state ${locationDraftDirty || !editingLocationId ? 'unsaved' : 'saved'}" data-location-save-state>${locationDraftDirty || !editingLocationId ? '<strong>Non enregistré</strong><span>Valide le formulaire pour conserver ces informations dans Appwrite.</span>' : '<strong>Enregistré dans Appwrite</strong><span>Les informations resteront présentes après déconnexion ou rechargement.</span>'}</div><div class="form-actions"><button class="primary" type="submit">${editingLocationId ? 'Enregistrer les modifications' : 'Enregistrer le lieu'}</button></div></form>`,
+      <form class="panel setup-form location-form" data-location-form><div class="location-form-title"><div><h3>${editingLocationId ? 'Modifier le lieu' : 'Ajouter un lieu'}</h3><p>${editingLocationId ? 'Les modifications seront appliquées au lieu sélectionné.' : 'Le premier lieu créé devient automatiquement le lieu principal.'}</p></div>${editingLocationId ? '<button type="button" class="outline" data-action="add-location">＋ Nouveau lieu</button>' : ''}</div><div class="setup-grid">${field('Nom du lieu *', 'locationName', setup.locationName, 'text', 'maxlength="128"')}${field('Nombre de salles *', 'roomCount', setup.roomCount, 'number', 'min="1" max="99"')}${field('Adresse *', 'locationAddress', setup.locationAddress, 'text', 'maxlength="255"')}${field('Code postal *', 'locationPostal', setup.locationPostal, 'text', 'maxlength="24"')}${field('Ville *', 'locationCity', setup.locationCity, 'text', 'maxlength="96"')}${field('Pays *', 'locationCountry', setup.locationCountry, 'text', 'maxlength="96"')}</div>${weeklyScheduleEditor()}<label class="primary-location-choice"><input type="checkbox" name="isPrimary" ${(!centreLocations.length || centreLocations.find(item => item.$id === editingLocationId)?.isPrimary) ? 'checked' : ''}><span>Définir comme lieu principal du centre</span></label><div class="location-save-state ${locationDraftDirty || !editingLocationId ? 'unsaved' : 'saved'}" data-location-save-state>${locationDraftDirty || !editingLocationId ? '<strong>Non enregistré</strong><span>Valide le formulaire pour conserver ces informations dans Appwrite.</span>' : '<strong>Enregistré dans Appwrite</strong><span>Les informations resteront présentes après déconnexion ou rechargement.</span>'}</div><div class="form-actions"><button class="primary" type="submit">${editingLocationId ? 'Enregistrer les modifications' : 'Enregistrer le lieu'}</button></div></form>`,
     clients: `${settingsHeader('Clients du centre', 'Crée un client manuellement ou importe une liste existante. Rien n’est enregistré avant confirmation.', 'Étape 4')}
       <div class="setup-two-cols"><article class="panel setup-choice"><span class="choice-icon">＋</span><h3>Ajouter manuellement</h3><p>Nom, prénom, e-mail, téléphone, adresse et praticien du centre.</p><button class="outline" data-action="setup-manual-client">Créer un client fictif</button></article><article class="panel setup-choice"><span class="choice-icon">⇧</span><h3>Importer une liste</h3><p>CSV ou Excel. Les doublons seront signalés avant confirmation.</p><label class="primary file-button">Choisir un fichier fictif<input id="centreClientsInput" type="file" accept=".csv,.xlsx,text/csv" hidden></label></article></div><div id="clientImportPreview"></div>
       <article class="panel data-boundary"><strong>Colonnes autorisées</strong><p>Prénom · Nom · E-mail · Téléphone · Adresse · Praticien du centre</p><strong>Colonnes refusées</strong><p>Diagnostic · Notes · Analyses · Consentements · Comptes rendus médicaux</p></article>`,
@@ -693,15 +753,14 @@ document.addEventListener('click', async event => {
   const authSwitch = event.target.closest('[data-auth-switch]');
   if (authSwitch) return renderAuthGate(authSwitch.dataset.authSwitch);
 
-  const openingDay = event.target.closest('[data-opening-day]');
-  if (openingDay) {
-    const day = openingDay.dataset.openingDay;
-    const openingDays = setup.openingDays.includes(day) ? setup.openingDays.filter(item => item !== day) : [...setup.openingDays, day];
-    saveSetup({ openingDays });
+  const scheduleDay = event.target.closest('[data-schedule-day]');
+  if (scheduleDay) {
+    const day = scheduleDay.dataset.scheduleDay;
+    const weeklySchedule = normalizeWeeklySchedule(setup.weeklySchedule, setup.openingDays, setup.openStart, setup.openEnd);
+    weeklySchedule[day].enabled = !weeklySchedule[day].enabled;
+    saveSetup({ weeklySchedule, openingDays: weekDays.filter(item => weeklySchedule[item].enabled) });
     locationDraftDirty = true;
-    openingDay.classList.toggle('selected');
-    const saveState = openingDay.closest('[data-location-form]')?.querySelector('[data-location-save-state]');
-    if (saveState) { saveState.className = 'location-save-state unsaved'; saveState.innerHTML = '<strong>Non enregistré</strong><span>Valide le formulaire pour conserver ces informations dans Appwrite.</span>'; }
+    renderSettings('locations');
     return;
   }
   const nav = event.target.closest('[data-view]');
@@ -943,6 +1002,16 @@ document.addEventListener('change', async event => {
 });
 
 document.addEventListener('input', event => {
+  const scheduleTime = event.target.closest('[data-schedule-time]');
+  if (scheduleTime) {
+    const weeklySchedule = normalizeWeeklySchedule(setup.weeklySchedule, setup.openingDays, setup.openStart, setup.openEnd);
+    weeklySchedule[scheduleTime.dataset.day].slots[Number(scheduleTime.dataset.slot)][scheduleTime.dataset.part] = scheduleTime.value;
+    saveSetup({ weeklySchedule });
+    locationDraftDirty = true;
+    const saveState = scheduleTime.closest('[data-location-form]')?.querySelector('[data-location-save-state]');
+    if (saveState) { saveState.className = 'location-save-state unsaved'; saveState.innerHTML = '<strong>Non enregistré</strong><span>Valide le formulaire pour conserver ces informations dans Appwrite.</span>'; }
+    return;
+  }
   const locationField = event.target.closest('[data-location-form] input[name]');
   if (locationField && locationField.name !== 'isPrimary') {
     saveSetup({ [locationField.name]: locationField.value });

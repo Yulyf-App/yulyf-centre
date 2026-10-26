@@ -37,6 +37,14 @@ isolée des tables historiques `records` et `admin_records` de LYC.
 - Table dédiée : `yulyf_centre_locations`.
 - Plusieurs lieux par centre avec nom, adresse complète, pays, nombre de salles,
   jours et heures d’ouverture.
+- Colonne `weeklySchedule` : planning JSON détaillé pour les sept jours.
+- Chaque jour est activable séparément et possède une première plage obligatoire
+  lorsqu’il est ouvert, ainsi qu’une seconde plage facultative (par exemple après
+  une fermeture sur le temps de midi).
+- Les plages incomplètes, inversées ou qui se chevauchent sont refusées avant
+  l’enregistrement.
+- Les anciennes données `openingDays`, `openStart` et `openEnd` sont converties
+  automatiquement et restent alimentées pour la compatibilité avec l’agenda.
 - Un seul lieu principal ; le choix d’un nouveau lieu principal rétrograde
   automatiquement le précédent.
 - Lecture réservée au propriétaire et aux membres de l’équipe du centre.

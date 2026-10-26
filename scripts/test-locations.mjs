@@ -16,6 +16,15 @@ let centreId;
 let teamId;
 const locationIds = [];
 const cleanupErrors = [];
+const firstSchedule = JSON.stringify({
+  Lun: { enabled: true, slots: [{ start: '08:00', end: '12:00' }, { start: '13:00', end: '18:00' }] },
+  Mar: { enabled: true, slots: [{ start: '09:00', end: '17:00' }, { start: '', end: '' }] },
+  Mer: { enabled: false, slots: [{ start: '', end: '' }, { start: '', end: '' }] },
+  Jeu: { enabled: true, slots: [{ start: '10:00', end: '14:00' }, { start: '15:00', end: '19:00' }] },
+  Ven: { enabled: true, slots: [{ start: '08:00', end: '16:00' }, { start: '', end: '' }] },
+  Sam: { enabled: false, slots: [{ start: '', end: '' }, { start: '', end: '' }] },
+  Dim: { enabled: false, slots: [{ start: '', end: '' }, { start: '', end: '' }] },
+});
 
 function cli(args) {
   const command = process.platform === 'win32' ? process.env.ComSpec : 'appwrite';
@@ -52,7 +61,7 @@ try {
   });
   centreId = centre.$id;
   const permissions = [Permission.read(Role.user(owner.$id)), Permission.read(Role.team(teamId)), Permission.update(Role.user(owner.$id)), Permission.update(Role.team(teamId, 'yc-admin')), Permission.delete(Role.user(owner.$id)), Permission.delete(Role.team(teamId, 'yc-admin'))];
-  const first = await ownerTables.createRow({ databaseId, tableId: locationsTableId, rowId: ID.unique(), data: { centreId, teamId, name: 'Site principal', address: 'Rue du Test 1', postal: '1000', city: 'Bruxelles', country: 'Belgique', roomCount: 4, openStart: '08:00', openEnd: '18:00', openingDays: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven'], isPrimary: true, createdAt: now, updatedAt: now }, permissions });
+  const first = await ownerTables.createRow({ databaseId, tableId: locationsTableId, rowId: ID.unique(), data: { centreId, teamId, name: 'Site principal', address: 'Rue du Test 1', postal: '1000', city: 'Bruxelles', country: 'Belgique', roomCount: 4, openStart: '08:00', openEnd: '19:00', openingDays: ['Lun', 'Mar', 'Jeu', 'Ven'], weeklySchedule: firstSchedule, isPrimary: true, createdAt: now, updatedAt: now }, permissions });
   locationIds.push(first.$id);
   const second = await ownerTables.createRow({ databaseId, tableId: locationsTableId, rowId: ID.unique(), data: { centreId, teamId, name: 'Site secondaire', address: 'Rue du Test 2', postal: '5000', city: 'Namur', country: 'Belgique', roomCount: 2, openStart: '09:00', openEnd: '17:00', openingDays: ['Mar', 'Jeu'], isPrimary: false, createdAt: now, updatedAt: now }, permissions });
   locationIds.push(second.$id);
@@ -61,6 +70,8 @@ try {
   await ownerTables.updateRow({ databaseId, tableId: locationsTableId, rowId: second.$id, data: { isPrimary: true, updatedAt: new Date().toISOString() } });
   const ownerRows = await ownerTables.listRows({ databaseId, tableId: locationsTableId, queries: [Query.equal('centreId', [centreId]), Query.limit(100)] });
   if (ownerRows.rows.length !== 2 || ownerRows.rows.filter(item => item.isPrimary).length !== 1) throw new Error('Les lieux multiples ou le lieu principal ne sont pas correctement enregistrés.');
+  const persistedSchedule = JSON.parse(ownerRows.rows.find(item => item.$id === first.$id).weeklySchedule);
+  if (!persistedSchedule.Lun.enabled || persistedSchedule.Lun.slots.length !== 2 || persistedSchedule.Lun.slots[1].start !== '13:00' || persistedSchedule.Mer.enabled) throw new Error('Les horaires variables et les deux plages par jour ne sont pas correctement enregistrés.');
 
   const outsiderRows = await outsiderTables.listRows({ databaseId, tableId: locationsTableId, queries: [Query.equal('centreId', [centreId]), Query.limit(100)] });
   if (outsiderRows.rows.length) throw new Error('Un utilisateur extérieur peut lister les lieux du centre.');
@@ -70,7 +81,7 @@ try {
   try { await outsiderTables.updateRow({ databaseId, tableId: locationsTableId, rowId: first.$id, data: { name: 'Interdit' } }); } catch { updateBlocked = true; }
   if (!directReadBlocked || !updateBlocked) throw new Error('Les permissions des lieux ne bloquent pas un utilisateur extérieur.');
 
-  console.log(JSON.stringify({ status: 'ok', multipleLocationsPersisted: true, singlePrimaryLocation: true, outsiderHidden: true, directReadBlocked, updateBlocked }));
+  console.log(JSON.stringify({ status: 'ok', multipleLocationsPersisted: true, weeklySchedulePersisted: true, twoSlotsPerDayPersisted: true, closedDaysPersisted: true, singlePrimaryLocation: true, outsiderHidden: true, directReadBlocked, updateBlocked }));
 } finally {
   if (ownerTables) {
     for (const rowId of locationIds.reverse()) {
