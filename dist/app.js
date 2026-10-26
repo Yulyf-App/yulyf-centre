@@ -986,7 +986,14 @@ function renderSettings(section) {
   pane.innerHTML = pages[section] || pages.overview;
   if (section === 'clients' && !editingClientId) {
     const practitionerSelect = pane.querySelector('[data-client-form] select[name="practitionerUserId"]');
-    if (practitionerSelect) practitionerSelect.value = '';
+    const resetPractitioner = () => {
+      if (practitionerSelect) {
+        practitionerSelect.value = '';
+        practitionerSelect.selectedIndex = 0;
+      }
+    };
+    resetPractitioner();
+    window.setTimeout(resetPractitioner, 0);
   }
   updateSetupProgress();
   if (accessLevel('settings') === 'view') pane.querySelectorAll('input, textarea, select, button').forEach(control => { control.disabled = true; });
