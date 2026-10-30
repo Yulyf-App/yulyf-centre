@@ -34,6 +34,7 @@ let practitionerDirectoryQuery = '';
 let practitionerDirectoryLoaded = false;
 let practitionerDirectoryLoading = false;
 let practitionerDirectoryError = '';
+let practitionerDirectorySearchTimer = null;
 let editingLocationId = '';
 let locationDraftDirty = false;
 let clientImportRows = [];
@@ -863,6 +864,11 @@ function renderPractitionersView() {
   if (!host) return;
   if (!practitionerDirectoryLoaded && !practitionerDirectoryLoading) void loadPractitionerDirectory();
   const visible = practitionerDirectory.filter(item => matchesPractitionerSearch(item, practitionerDirectoryQuery));
+  const directoryStatus = practitionerDirectoryLoading
+    ? 'Actualisation…'
+    : practitionerDirectoryLoaded
+      ? `${visible.length} compte${visible.length > 1 ? 's' : ''} affiché${visible.length > 1 ? 's' : ''} sur ${practitionerDirectory.length}`
+      : 'Annuaire non chargé';
   const directoryResults = practitionerDirectoryLoading && !practitionerDirectoryLoaded
     ? '<div class="directory-empty"><strong>Chargement de l’annuaire Yulyf…</strong><p>Les comptes existants vont apparaître automatiquement.</p></div>'
     : practitionerDirectoryError
@@ -874,7 +880,7 @@ function renderPractitionersView() {
           : '<div class="directory-empty"><strong>Aucun compte Yulyf disponible</strong><p>L’annuaire partagé ne contient actuellement aucun praticien.</p></div>';
   const relationCards = centrePractitionerRelations.map(relation => `<article class="practitioner-link-card"><span class="avatar xl aqua">${safeText(practitionerInitials(relation.name))}</span><div><h3>${safeText(relation.name)}</h3><p>${safeText(relation.activity || relation.email)}</p><small>${safeText(relation.practitionerNumber || (relation.accountMode === 'centre_created' ? 'Yulyf créé par le centre' : 'Compte Yulyf existant'))}</small></div><span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Lié au centre' : 'Invitation envoyée'}</span><b>${relation.accountMode === 'centre_created' ? 'ProAssist payé par le centre' : 'Abonnement personnel'}</b></article>`).join('');
   host.innerHTML = `<section class="practitioner-links"><div class="panel-head"><div><h2>Praticiens du centre</h2><p>La même liaison est visible ici et dans le Yulyf du praticien.</p></div></div>${relationCards || '<article class="panel location-empty"><strong>Aucun praticien lié</strong><p>Recherche d’abord dans l’annuaire Yulyf.</p></article>'}</section>
-    <section class="panel practitioner-directory-panel"><div class="panel-head"><div><h2>Annuaire des praticiens Yulyf</h2><p>Annuaire existant de BackofficeLYC, sans patient ni donnée privée.</p></div></div><label class="search practitioner-search">⌕<input id="practitionerDirectorySearch" value="${safeText(practitionerDirectoryQuery)}" placeholder="Nom, e-mail ou numéro Yulyf…"></label><div class="practitioner-directory-results">${directoryResults}</div></section>
+    <section class="panel practitioner-directory-panel"><div class="panel-head"><div><h2>Annuaire des praticiens Yulyf</h2><p>Annuaire existant de BackofficeLYC, sans patient ni donnée privée.</p></div><button class="outline" data-action="retry-practitioner-directory" ${practitionerDirectoryLoading ? 'disabled' : ''}>Actualiser l’annuaire</button></div><label class="search practitioner-search">⌕<input id="practitionerDirectorySearch" value="${safeText(practitionerDirectoryQuery)}" placeholder="Nom, e-mail ou numéro Yulyf…" autocomplete="off"></label><div class="directory-result-status" aria-live="polite">${safeText(directoryStatus)}</div><div class="practitioner-directory-results">${directoryResults}</div></section>
     <form class="panel centre-practitioner-create" data-centre-practitioner-create><div><h2>Praticien absent de l’annuaire</h2><p>Il recevra un Yulyf ProAssist financé par le centre. Ce centre sera son seul lieu au départ.</p></div><div class="access-identity">${field('Nom du praticien *', 'practitionerName', '', 'text', 'maxlength="128"')}${field('E-mail professionnel *', 'practitionerEmail', '', 'email', 'maxlength="320"')}</div><div class="sponsorship-rule"><strong>ProAssist · payé par le centre</strong><span>S’il ajoute ensuite un lieu privé, il devra payer en une fois un abonnement annuel ProAssist ou supérieur.</span></div><button class="primary" type="submit">Créer l’invitation Yulyf du centre</button></form>`;
 }
 
@@ -1396,6 +1402,10 @@ document.addEventListener('input', event => {
     const search = document.getElementById('practitionerDirectorySearch');
     search?.focus();
     search?.setSelectionRange(practitionerDirectoryQuery.length, practitionerDirectoryQuery.length);
+    clearTimeout(practitionerDirectorySearchTimer);
+    practitionerDirectorySearchTimer = setTimeout(() => {
+      void loadPractitionerDirectory();
+    }, 250);
     return;
   }
   const scheduleTime = event.target.closest('[data-schedule-time]');

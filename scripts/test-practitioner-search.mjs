@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { matchesPractitionerSearch, normalizePractitionerSearch } from '../dist/practitioner-search.js';
 
 const practitioner = {
@@ -14,4 +15,9 @@ assert.equal(matchesPractitionerSearch(practitioner, 'YUL-2026-603115'), true);
 assert.equal(matchesPractitionerSearch(practitioner, 'auditstructu@outlook.com'), true);
 assert.equal(matchesPractitionerSearch(practitioner, 'médecin absent'), false);
 
-console.log(JSON.stringify({ status: 'ok', typoTolerant: true, accentsNormalized: true, multiFieldSearch: true }));
+const appSource = readFileSync(new URL('../dist/app.js', import.meta.url), 'utf8');
+assert.match(appSource, /Actualiser l’annuaire/);
+assert.match(appSource, /directory-result-status/);
+assert.match(appSource, /setTimeout\(\(\) => \{\s*void loadPractitionerDirectory\(\);\s*\}, 250\)/);
+
+console.log(JSON.stringify({ status: 'ok', typoTolerant: true, accentsNormalized: true, multiFieldSearch: true, liveRefresh: true, visibleResultCount: true }));
