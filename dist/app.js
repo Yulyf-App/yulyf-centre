@@ -501,7 +501,9 @@ async function refreshPractitionerDirectory({ synchronize = false } = {}) {
     practitionerDirectoryLoaded = true;
     return;
   }
-  const payload = await executePractitionerGateway(synchronize ? 'sync' : 'directory');
+  if (synchronize) await executePractitionerGateway('sync');
+  const payload = await executePractitionerGateway('directory');
+  if (!Array.isArray(payload.directory)) throw new Error('L’annuaire Yulyf a répondu sans transmettre sa liste.');
   practitionerDirectory = payload.directory || [];
   centrePractitionerRelations = payload.relations || [];
   practitionerDirectoryLoaded = true;

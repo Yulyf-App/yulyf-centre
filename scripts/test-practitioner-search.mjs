@@ -21,6 +21,8 @@ assert.match(appSource, /directory-result-status/);
 assert.match(appSource, /data-practitioner-card/);
 assert.match(appSource, /card\.hidden = !visibleIds\.has/);
 assert.match(appSource, /empty\.hidden = visibleIds\.size > 0/);
+assert.match(appSource, /if \(synchronize\) await executePractitionerGateway\('sync'\);\s*const payload = await executePractitionerGateway\('directory'\)/);
+assert.match(appSource, /if \(!Array\.isArray\(payload\.directory\)\) throw new Error/);
 assert.doesNotMatch(appSource, /practitionerDirectorySearchTimer/);
 
-console.log(JSON.stringify({ status: 'ok', typoTolerant: true, accentsNormalized: true, multiFieldSearch: true, stableInputFocus: true, persistentDirectoryCards: true, visibleResultCount: true }));
+console.log(JSON.stringify({ status: 'ok', typoTolerant: true, accentsNormalized: true, multiFieldSearch: true, stableInputFocus: true, persistentDirectoryCards: true, synchronousDirectoryRead: true, visibleResultCount: true }));
