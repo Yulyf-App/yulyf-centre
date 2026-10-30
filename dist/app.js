@@ -869,11 +869,9 @@ function practitionerDirectoryViewState() {
     ? '<div class="directory-empty"><strong>Chargement de l’annuaire Yulyf…</strong><p>Les comptes existants vont apparaître automatiquement.</p></div>'
     : practitionerDirectoryError
       ? `<div class="directory-empty directory-error"><strong>Impossible de charger l’annuaire Yulyf</strong><p>${safeText(practitionerDirectoryError)}</p><button class="outline" data-action="retry-practitioner-directory">Réessayer</button></div>`
-      : visible.length
-        ? visible.map(item => { const relation = relationForPractitioner(item); return `<article><span class="avatar aqua">${safeText(practitionerInitials(item.name))}</span><div><strong>${safeText(item.name)}</strong><small>${safeText(item.practitionerNumber || item.email)}</small><em>${safeText(item.activity || 'Praticien Yulyf')}</em></div>${relation ? `<span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Déjà lié' : 'Invitation envoyée'}</span>` : `<button class="primary" data-practitioner-invite="${safeText(item.id)}">Inviter à rejoindre le centre</button>`}</article>`; }).join('')
-        : practitionerDirectoryQuery.trim()
-          ? '<div class="directory-empty"><strong>Aucun compte correspondant</strong><p>Vérifie le nom, l’e-mail ou le numéro YUL saisi.</p></div>'
-          : '<div class="directory-empty"><strong>Aucun compte Yulyf disponible</strong><p>L’annuaire partagé ne contient actuellement aucun praticien.</p></div>';
+      : practitionerDirectory.length
+        ? `${practitionerDirectory.map(item => { const relation = relationForPractitioner(item); const hidden = matchesPractitionerSearch(item, practitionerDirectoryQuery) ? '' : ' hidden'; return `<article data-practitioner-card="${safeText(item.id)}"${hidden}><span class="avatar aqua">${safeText(practitionerInitials(item.name))}</span><div><strong>${safeText(item.name)}</strong><small>${safeText(item.practitionerNumber || item.email)}</small><em>${safeText(item.activity || 'Praticien Yulyf')}</em></div>${relation ? `<span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Déjà lié' : 'Invitation envoyée'}</span>` : `<button class="primary" data-practitioner-invite="${safeText(item.id)}">Inviter à rejoindre le centre</button>`}</article>`; }).join('')}<div class="directory-empty" data-practitioner-filter-empty ${visible.length ? 'hidden' : ''}><strong>Aucun compte correspondant</strong><p>Vérifie le nom, l’e-mail ou le numéro YUL saisi.</p></div>`
+        : '<div class="directory-empty"><strong>Aucun compte Yulyf disponible</strong><p>L’annuaire partagé ne contient actuellement aucun praticien.</p></div>';
   return { status, results };
 }
 
@@ -1402,11 +1400,12 @@ document.addEventListener('change', async event => {
 document.addEventListener('input', event => {
   if (event.target.id === 'practitionerDirectorySearch') {
     practitionerDirectoryQuery = event.target.value;
-    const directoryView = practitionerDirectoryViewState();
+    const visibleIds = new Set(practitionerDirectory.filter(item => matchesPractitionerSearch(item, practitionerDirectoryQuery)).map(item => item.id));
+    document.querySelectorAll('[data-practitioner-card]').forEach(card => { card.hidden = !visibleIds.has(card.dataset.practitionerCard); });
     const status = document.querySelector('.directory-result-status');
-    const results = document.querySelector('.practitioner-directory-results');
-    if (status) status.textContent = directoryView.status;
-    if (results) results.innerHTML = directoryView.results;
+    if (status) status.textContent = `${visibleIds.size} compte${visibleIds.size > 1 ? 's' : ''} affiché${visibleIds.size > 1 ? 's' : ''} sur ${practitionerDirectory.length}`;
+    const empty = document.querySelector('[data-practitioner-filter-empty]');
+    if (empty) empty.hidden = visibleIds.size > 0;
     return;
   }
   const scheduleTime = event.target.closest('[data-schedule-time]');
