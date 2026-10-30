@@ -1,6 +1,7 @@
 import { Account, Client, Functions, ID, Permission, Query, Role, Storage, TablesDB, Teams } from 'appwrite';
 import readXlsxFile from 'read-excel-file/browser';
 import { normalizeWebsite, validWebsite } from './website.js';
+import { matchesPractitionerSearch } from './practitioner-search.js';
 
 const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
 const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
@@ -835,8 +836,7 @@ function practitionerInitials(name = '') {
 function renderPractitionersView() {
   const host = document.getElementById('practitionerDirectory');
   if (!host) return;
-  const query = practitionerDirectoryQuery.trim().toLowerCase();
-  const visible = practitionerDirectory.filter(item => `${item.name} ${item.email} ${item.practitionerNumber} ${item.activity}`.toLowerCase().includes(query));
+  const visible = practitionerDirectory.filter(item => matchesPractitionerSearch(item, practitionerDirectoryQuery));
   const relationCards = centrePractitionerRelations.map(relation => `<article class="practitioner-link-card"><span class="avatar xl aqua">${safeText(practitionerInitials(relation.name))}</span><div><h3>${safeText(relation.name)}</h3><p>${safeText(relation.activity || relation.email)}</p><small>${safeText(relation.practitionerNumber || (relation.accountMode === 'centre_created' ? 'Yulyf créé par le centre' : 'Compte Yulyf existant'))}</small></div><span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Lié au centre' : 'Invitation envoyée'}</span><b>${relation.accountMode === 'centre_created' ? 'ProAssist payé par le centre' : 'Abonnement personnel'}</b></article>`).join('');
   host.innerHTML = `<section class="practitioner-links"><div class="panel-head"><div><h2>Praticiens du centre</h2><p>La même liaison est visible ici et dans le Yulyf du praticien.</p></div></div>${relationCards || '<article class="panel location-empty"><strong>Aucun praticien lié</strong><p>Recherche d’abord dans l’annuaire Yulyf.</p></article>'}</section>
     <section class="panel practitioner-directory-panel"><div class="panel-head"><div><h2>Annuaire des praticiens Yulyf</h2><p>Annuaire existant de BackofficeLYC, sans patient ni donnée privée.</p></div></div><label class="search practitioner-search">⌕<input id="practitionerDirectorySearch" value="${safeText(practitionerDirectoryQuery)}" placeholder="Nom, e-mail ou numéro Yulyf…"></label><div class="practitioner-directory-results">${visible.length ? visible.map(item => { const relation = relationForPractitioner(item); return `<article><span class="avatar aqua">${safeText(practitionerInitials(item.name))}</span><div><strong>${safeText(item.name)}</strong><small>${safeText(item.practitionerNumber || item.email)}</small><em>${safeText(item.activity || 'Praticien Yulyf')}</em></div>${relation ? `<span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Déjà lié' : 'Invitation envoyée'}</span>` : `<button class="primary" data-practitioner-invite="${safeText(item.id)}">Inviter à rejoindre le centre</button>`}</article>`; }).join('') : '<div class="directory-empty"><strong>Aucun compte Yulyf trouvé</strong><p>Crée une invitation Yulyf financée par le centre ci-dessous.</p></div>'}</div></section>

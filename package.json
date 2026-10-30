@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "check": "node --check dist/app.js && node --check dist/website.js && node --check build.mjs && node --check functions/client-gateway/index.js && node --check functions/practitioner-gateway/index.js && node --check scripts/test-branding.mjs && node --check scripts/test-roles.mjs && node --check scripts/test-centre-creation.mjs && node --check scripts/test-locations.mjs && node --check scripts/test-clients.mjs && node --check scripts/test-practitioners.mjs",
+    "check": "node --check dist/app.js && node --check dist/website.js && node --check dist/practitioner-search.js && node --check build.mjs && node --check functions/client-gateway/index.js && node --check functions/practitioner-gateway/index.js && node --check scripts/test-branding.mjs && node --check scripts/test-roles.mjs && node --check scripts/test-centre-creation.mjs && node --check scripts/test-locations.mjs && node --check scripts/test-clients.mjs && node --check scripts/test-practitioners.mjs && node scripts/test-practitioner-search.mjs",
     "test:branding": "node scripts/test-branding.mjs",
     "test:roles": "node scripts/test-roles.mjs",
     "test:centre": "node scripts/test-centre-creation.mjs",
