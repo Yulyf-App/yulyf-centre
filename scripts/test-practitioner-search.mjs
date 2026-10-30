@@ -27,8 +27,11 @@ assert.match(appSource, /if \(synchronize\) await executePractitionerGateway\('s
 assert.match(appSource, /if \(!Array\.isArray\(payload\.directory\)\) throw new Error/);
 assert.doesNotMatch(appSource, /practitionerDirectorySearchTimer/);
 assert.match(settingsStyles, /\.practitioner-directory-results>article\[hidden\]\{display:none!important\}/);
-assert.match(gatewaySource, /const body = \{ roles, name, url: text\(input\.returnUrl, 512\), email: targetEmail \}/);
-assert.doesNotMatch(gatewaySource, /practitionerUserId \? \{ userId: practitionerUserId \}/);
+assert.match(gatewaySource, /inviteTokenHash/);
+assert.match(gatewaySource, /LYC_CENTRE_BRIDGE_SECRET/);
+assert.match(gatewaySource, /body: JSON\.stringify\(\{ relationId: relation\.\$id, token: inviteToken \}\)/);
+assert.match(gatewaySource, /status: 'invited'/);
+assert.doesNotMatch(gatewaySource, /membership\.confirm \? 'active' : 'invited'/);
 assert.match(appSource, /await executePractitionerGateway\('invite',[\s\S]*?await loadPractitionerDirectory\(\);[\s\S]*?await refreshCentreMembers\(\);/);
 
 console.log(JSON.stringify({ status: 'ok', typoTolerant: true, accentsNormalized: true, multiFieldSearch: true, stableInputFocus: true, persistentDirectoryCards: true, synchronousDirectoryRead: true, visibleResultCount: true }));

@@ -1,9 +1,12 @@
+import crypto from 'node:crypto';
+
 const databaseId = 'lyc';
 const centresTableId = 'yulyf_centres';
 const locationsTableId = 'yulyf_centre_locations';
 const relationsTableId = 'yulyf_centre_practitioners';
 const recordsTableId = 'records';
 const adminTableId = 'admin_records';
+const practitionerRoles = ['yc-praticien', 'p-dashboard-view', 'p-clients-view', 'p-practitioners-none', 'p-agenda-edit', 'p-requests-view', 'p-billing-none', 'p-documents-view', 'p-statistics-none', 'p-settings-none'];
 
 const text = (value, max = 320) => String(value || '').trim().slice(0, max);
 const email = value => text(value, 320).toLowerCase();
@@ -96,31 +99,55 @@ async function createRelation(req, input, centre, memberships) {
   if (!targetEmail || !name) throw Object.assign(new Error('Le nom et l’adresse e-mail professionnelle sont obligatoires.'), { status: 400 });
   const existing = (await listRelations(req, centre.$id)).find(item => (practitionerUserId && item.practitionerUserId === practitionerUserId) || email(item.email) === targetEmail);
   if (existing && existing.status !== 'ended') throw Object.assign(new Error('Ce praticien est déjà lié ou invité dans ce centre.'), { status: 409 });
-  const roles = ['yc-praticien', 'p-dashboard-view', 'p-clients-view', 'p-practitioners-none', 'p-agenda-edit', 'p-requests-view', 'p-billing-none', 'p-documents-view', 'p-statistics-none', 'p-settings-none'];
-  const currentMembership = memberships.find(item => (practitionerUserId && item.userId === practitionerUserId) || email(item.userEmail) === targetEmail);
-  // L’adresse e-mail doit toujours être utilisée ici. Avec userId, Appwrite ajoute
-  // directement le compte existant à l’équipe et n’envoie aucune invitation.
-  const body = { roles, name, url: text(input.returnUrl, 512), email: targetEmail };
-  const membership = currentMembership || await api(req, `/teams/${encode(centre.teamId)}/memberships`, { method: 'POST', body: JSON.stringify(body) });
   const now = new Date().toISOString();
+  const inviteToken = practitionerUserId ? crypto.randomBytes(32).toString('base64url') : '';
+  const inviteTokenHash = inviteToken ? crypto.createHash('sha256').update(inviteToken).digest('hex') : '';
+  let membership = null;
+  if (!practitionerUserId) {
+    const currentMembership = memberships.find(item => email(item.userEmail) === targetEmail);
+    membership = currentMembership || await api(req, `/teams/${encode(centre.teamId)}/memberships`, { method: 'POST', body: JSON.stringify({ roles: practitionerRoles, name, url: text(input.returnUrl, 512), email: targetEmail }) });
+  }
   const data = {
     centreId: centre.$id,
     teamId: centre.teamId,
-    membershipId: membership.$id,
-    practitionerUserId: practitionerUserId || text(membership.userId, 36),
+    membershipId: text(membership?.$id, 36),
+    practitionerUserId: practitionerUserId || text(membership?.userId, 36),
     practitionerNumber: text(input.practitionerNumber, 32),
     name,
     email: targetEmail,
     activity: text(input.activity, 128),
-    status: membership.confirm ? 'active' : 'invited',
+    status: 'invited',
     accountMode,
     sponsorPlan: accountMode === 'centre_created' ? 'yulyf_ai' : '',
     billedBy: accountMode === 'centre_created' ? 'centre' : 'practitioner',
     locationId: '',
+    inviteTokenHash,
+    invitedAt: now,
     createdAt: now,
     updatedAt: now,
   };
   const relation = await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows`, { method: 'POST', body: JSON.stringify({ rowId: 'unique()', data, permissions: permissions(centre.ownerId, centre.teamId, data.practitionerUserId) }) });
+  if (practitionerUserId) {
+    const secret = process.env.LYC_CENTRE_BRIDGE_SECRET || '';
+    if (!secret) {
+      await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relation.$id)}`, { method: 'DELETE' }).catch(() => {});
+      throw Object.assign(new Error('Le canal sécurisé YulyfCentre → Yulyf n’est pas configuré.'), { status: 503 });
+    }
+    const origin = (process.env.LYC_SITE_ORIGIN || 'https://yulyf.me').replace(/\/$/, '');
+    const notification = await fetch(`${origin}/api/lyc/yulyf-centre-invitation`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ relationId: relation.$id, token: inviteToken }),
+    }).then(async response => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw Object.assign(new Error(payload.error || `Notification Yulyf refusée (${response.status}).`), { status: 502 });
+      return payload;
+    }).catch(async cause => {
+      await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relation.$id)}`, { method: 'DELETE' }).catch(() => {});
+      throw cause;
+    });
+    return { relation, notification };
+  }
   return { relation, membership };
 }
 
