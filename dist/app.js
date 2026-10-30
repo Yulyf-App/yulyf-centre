@@ -10,6 +10,7 @@ const APPWRITE_LOCATIONS_TABLE_ID = 'yulyf_centre_locations';
 const APPWRITE_CLIENTS_TABLE_ID = 'yulyf_centre_clients';
 const APPWRITE_CLIENT_LINKS_TABLE_ID = 'yulyf_centre_client_links';
 const APPWRITE_CLIENT_GATEWAY_ID = 'yulyf-centre-client-gateway';
+const APPWRITE_PRACTITIONER_GATEWAY_ID = 'yulyf-centre-practitioner-gateway';
 const APPWRITE_MEMBER_PROFILES_TABLE_ID = 'yulyf_centre_member_profiles';
 const APPWRITE_BRANDING_BUCKET_ID = 'yulyf_centre_branding';
 const appwriteClient = new Client().setEndpoint(APPWRITE_ENDPOINT).setProject(APPWRITE_PROJECT_ID);
@@ -26,6 +27,9 @@ let centreMemberProfiles = [];
 let centreLocations = [];
 let centreClients = [];
 let centreClientLinks = [];
+let practitionerDirectory = [];
+let centrePractitionerRelations = [];
+let practitionerDirectoryQuery = '';
 let editingLocationId = '';
 let locationDraftDirty = false;
 let clientImportRows = [];
@@ -473,6 +477,26 @@ async function executeClientGateway(action, data) {
   return payload;
 }
 
+async function executePractitionerGateway(action, data = {}) {
+  let execution = await functions.createExecution({ functionId: APPWRITE_PRACTITIONER_GATEWAY_ID, body: JSON.stringify({ action, centreId: centreRow.$id, teamId: centreRow.teamId, data }), async: action !== 'directory', path: '/', method: 'POST', headers: { 'content-type': 'application/json' } });
+  const startedAt = Date.now();
+  while (!['completed', 'failed'].includes(execution.status)) {
+    if (Date.now() - startedAt > 150000) throw new Error('La synchronisation de l’annuaire prend trop de temps. Réessaie dans un instant.');
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    execution = await functions.getExecution({ functionId: APPWRITE_PRACTITIONER_GATEWAY_ID, executionId: execution.$id });
+  }
+  const payload = JSON.parse(execution.responseBody || '{}');
+  if (execution.status === 'failed' || execution.responseStatusCode >= 400) throw new Error(payload.error || execution.errors || 'La passerelle praticiens a refusé l’opération.');
+  return payload;
+}
+
+async function refreshPractitionerDirectory({ synchronize = false } = {}) {
+  if (!centreRow || !isCentreOwner()) { practitionerDirectory = []; centrePractitionerRelations = []; return; }
+  const payload = await executePractitionerGateway(synchronize ? 'sync' : 'directory');
+  practitionerDirectory = payload.directory || [];
+  centrePractitionerRelations = payload.relations || [];
+}
+
 function validateCentreClient(data) {
   if (!String(data.firstName || '').trim() || !String(data.lastName || '').trim()) return 'Complète le prénom et le nom du client.';
   const email = normalizedEmail(data.email);
@@ -617,6 +641,7 @@ async function loadCentre() {
     await refreshCentreLocations({ selectPrimary: true });
     await refreshCentreClients();
     await syncCentreClientLinks().catch(() => null);
+    await refreshPractitionerDirectory({ synchronize: true }).catch(() => null);
   }
   return centreRow;
 }
@@ -748,6 +773,7 @@ function render(view, push = true) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (view === 'settings') renderSettings('overview');
   if (view === 'patients') renderClientsView();
+  if (view === 'practitioners') renderPractitionersView();
   const displayName = currentUser?.name || currentUser?.email || 'Administrateur';
   if (view === 'today') document.getElementById('dashboardGreeting').textContent = `Bonjour ${displayName}.`;
   if (view === 'support') document.getElementById('supportGreeting').textContent = `Bonjour ${displayName},`;
@@ -774,7 +800,7 @@ function memberProfile(member) {
 
 function clientEditor() {
   const client = centreClients.find(item => item.$id === editingClientId) || {};
-  return `<form class="panel setup-form client-form" data-client-form><div class="location-form-title"><div><h3>${client.$id ? 'Modifier le client' : 'Ajouter un client'}</h3><p>La fiche reste administrative. La liaison au dossier du praticien est automatique.</p></div>${client.$id ? '<button type="button" class="outline" data-action="add-client">＋ Nouveau client</button>' : ''}</div><div class="setup-grid">${field('Prénom *', 'firstName', client.firstName, 'text', 'maxlength="128"')}${field('Nom *', 'lastName', client.lastName, 'text', 'maxlength="128"')}${field('E-mail', 'email', client.email, 'email', 'maxlength="320"')}${field('Téléphone', 'phone', client.phone, 'tel', 'maxlength="40"')}${field('Adresse', 'address', client.address, 'text', 'maxlength="320"')}${field('Code postal', 'postal', client.postal, 'text', 'maxlength="20"')}${field('Ville', 'city', client.city, 'text', 'maxlength="128"')}${field('Pays', 'country', client.country || 'Belgique', 'text', 'maxlength="64"')}</div><div class="privacy-callout compact"><div class="shield">↔</div><div><strong>Synchronisation automatique avec Yulyf</strong><p>YulyfCentre rapproche l’e-mail de cette fiche avec les patients des praticiens du centre. Le numéro patient est récupéré automatiquement depuis leur Yulyf personnel. Les patients qui ne figurent pas dans la liste du centre restent invisibles, ainsi que leurs notes, analyses et documents privés.</p></div></div><div class="form-actions"><button class="primary" type="submit">${client.$id ? 'Enregistrer les modifications' : 'Enregistrer le client'}</button></div></form>`;
+  return `<form class="panel setup-form client-form" data-client-form><div class="location-form-title"><div><h3>${client.$id ? 'Modifier le client' : 'Ajouter un client'}</h3><p>La fiche reste administrative. La liaison au dossier du praticien est automatique.</p></div>${client.$id ? '<button type="button" class="outline" data-action="add-client">＋ Nouveau client</button>' : ''}</div><div class="setup-grid">${field('Prénom *', 'firstName', client.firstName, 'text', 'maxlength="128"')}${field('Nom *', 'lastName', client.lastName, 'text', 'maxlength="128"')}${field('E-mail', 'email', client.email, 'email', 'maxlength="320"')}${field('Téléphone', 'phone', client.phone, 'tel', 'maxlength="40"')}${field('Adresse', 'address', client.address, 'text', 'maxlength="320"')}${field('Code postal', 'postal', client.postal, 'text', 'maxlength="20"')}${field('Ville', 'city', client.city, 'text', 'maxlength="128"')}${field('Pays', 'country', client.country || 'Belgique', 'text', 'maxlength="64"')}</div><div class="privacy-callout compact"><div class="shield">↔</div><div><strong>Synchronisation automatique avec Yulyf</strong><p>Le numéro patient est récupéré depuis le Yulyf du praticien uniquement lorsque ce patient est explicitement affecté au centre. Un patient du cabinet privé reste invisible, ainsi que ses notes, analyses et documents.</p></div></div><div class="form-actions"><button class="primary" type="submit">${client.$id ? 'Enregistrer les modifications' : 'Enregistrer le client'}</button></div></form>`;
 }
 
 function clientsPanel() {
@@ -796,6 +822,37 @@ function renderClientsView() {
   }).join('') : '<tr><td colspan="5"><div class="table-empty">Aucun client administratif enregistré pour ce centre.</div></td></tr>';
   const count = document.querySelector('[data-client-count]');
   if (count) count.textContent = `${centreClients.length} client${centreClients.length > 1 ? 's' : ''} actif${centreClients.length > 1 ? 's' : ''}`;
+}
+
+function relationForPractitioner(practitioner) {
+  return centrePractitionerRelations.find(item => item.practitionerUserId === practitioner.id || normalizedEmail(item.email) === normalizedEmail(practitioner.email));
+}
+
+function practitionerInitials(name = '') {
+  return String(name).split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || 'YP';
+}
+
+function renderPractitionersView() {
+  const host = document.getElementById('practitionerDirectory');
+  if (!host) return;
+  const query = practitionerDirectoryQuery.trim().toLowerCase();
+  const visible = practitionerDirectory.filter(item => `${item.name} ${item.email} ${item.practitionerNumber} ${item.activity}`.toLowerCase().includes(query));
+  const relationCards = centrePractitionerRelations.map(relation => `<article class="practitioner-link-card"><span class="avatar xl aqua">${safeText(practitionerInitials(relation.name))}</span><div><h3>${safeText(relation.name)}</h3><p>${safeText(relation.activity || relation.email)}</p><small>${safeText(relation.practitionerNumber || (relation.accountMode === 'centre_created' ? 'Yulyf créé par le centre' : 'Compte Yulyf existant'))}</small></div><span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Lié au centre' : 'Invitation envoyée'}</span><b>${relation.accountMode === 'centre_created' ? 'ProAssist payé par le centre' : 'Abonnement personnel'}</b></article>`).join('');
+  host.innerHTML = `<section class="practitioner-links"><div class="panel-head"><div><h2>Praticiens du centre</h2><p>La même liaison est visible ici et dans le Yulyf du praticien.</p></div></div>${relationCards || '<article class="panel location-empty"><strong>Aucun praticien lié</strong><p>Recherche d’abord dans l’annuaire Yulyf.</p></article>'}</section>
+    <section class="panel practitioner-directory-panel"><div class="panel-head"><div><h2>Annuaire des praticiens Yulyf</h2><p>Annuaire existant de BackofficeLYC, sans patient ni donnée privée.</p></div></div><label class="search practitioner-search">⌕<input id="practitionerDirectorySearch" value="${safeText(practitionerDirectoryQuery)}" placeholder="Nom, e-mail ou numéro Yulyf…"></label><div class="practitioner-directory-results">${visible.length ? visible.map(item => { const relation = relationForPractitioner(item); return `<article><span class="avatar aqua">${safeText(practitionerInitials(item.name))}</span><div><strong>${safeText(item.name)}</strong><small>${safeText(item.practitionerNumber || item.email)}</small><em>${safeText(item.activity || 'Praticien Yulyf')}</em></div>${relation ? `<span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Déjà lié' : 'Invitation envoyée'}</span>` : `<button class="primary" data-practitioner-invite="${safeText(item.id)}">Inviter à rejoindre le centre</button>`}</article>`; }).join('') : '<div class="directory-empty"><strong>Aucun compte Yulyf trouvé</strong><p>Crée une invitation Yulyf financée par le centre ci-dessous.</p></div>'}</div></section>
+    <form class="panel centre-practitioner-create" data-centre-practitioner-create><div><h2>Praticien absent de l’annuaire</h2><p>Il recevra un Yulyf ProAssist financé par le centre. Ce centre sera son seul lieu au départ.</p></div><div class="access-identity">${field('Nom du praticien *', 'practitionerName', '', 'text', 'maxlength="128"')}${field('E-mail professionnel *', 'practitionerEmail', '', 'email', 'maxlength="320"')}</div><div class="sponsorship-rule"><strong>ProAssist · payé par le centre</strong><span>S’il ajoute ensuite un lieu privé, il devra payer en une fois un abonnement annuel ProAssist ou supérieur.</span></div><button class="primary" type="submit">Créer l’invitation Yulyf du centre</button></form>`;
+}
+
+async function inviteDirectoryPractitioner(practitioner) {
+  const payload = await executePractitionerGateway('invite', { practitionerUserId: practitioner.id, practitionerNumber: practitioner.practitionerNumber, name: practitioner.name, email: practitioner.email, activity: practitioner.activity, returnUrl: `${location.origin}${location.pathname}` });
+  centrePractitionerRelations = payload.relations || centrePractitionerRelations;
+  await refreshCentreMembers();
+}
+
+async function inviteCentreCreatedPractitioner(input) {
+  const payload = await executePractitionerGateway('invite', { name: input.practitionerName, email: input.practitionerEmail, returnUrl: `${location.origin}${location.pathname}` });
+  centrePractitionerRelations = payload.relations || centrePractitionerRelations;
+  await refreshCentreMembers();
 }
 
 function normalizedHeader(value = '') {
@@ -1020,6 +1077,16 @@ document.addEventListener('click', async event => {
     return;
   }
 
+  const practitionerInvite = event.target.closest('[data-practitioner-invite]');
+  if (practitionerInvite) {
+    const practitioner = practitionerDirectory.find(item => item.id === practitionerInvite.dataset.practitionerInvite);
+    if (!practitioner) return showToast('Ce praticien est introuvable dans l’annuaire.');
+    practitionerInvite.disabled = true;
+    try { await inviteDirectoryPractitioner(practitioner); renderPractitionersView(); showToast('Invitation envoyée au compte Yulyf existant.'); }
+    catch (error) { practitionerInvite.disabled = false; showToast(error.message || appwriteMessage(error)); }
+    return;
+  }
+
   const memberEdit = event.target.closest('[data-member-edit]');
   if (memberEdit) {
     const member = centreMembers.find(item => item.$id === memberEdit.dataset.memberEdit);
@@ -1081,14 +1148,14 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
   if (!action) return;
   if (action.dataset.action === 'logout') {
-    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; centreClients = []; centreClientLinks = []; clientImportRows = []; editingClientId = ''; editingLocationId = ''; locationDraftDirty = false; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
+    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; centreClients = []; centreClientLinks = []; practitionerDirectory = []; centrePractitionerRelations = []; clientImportRows = []; editingClientId = ''; editingLocationId = ''; locationDraftDirty = false; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
   }
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',
     'new-patient': 'Ajout d’un client : seules les données administratives seront demandées.',
     'new-message': 'Le message sera identifié « Centre technique Z » dans le portail.',
     'new-invoice': 'Création de facture simulée — aucune donnée réelle.',
-    'new-practitioner': 'Invitation praticien simulée. Le lien Yulyf restera contrôlé.',
+    'new-practitioner': 'Utilise l’annuaire ci-dessous pour inviter un compte Yulyf ou créer un Yulyf financé par le centre.',
     'open-practitioner': 'Fiche des accès du praticien ouverte en démonstration.',
     'open-patient': 'Fiche administrative uniquement — aucun dossier sensible.',
     'new-request': 'Nouvelle demande administrative simulée.',
@@ -1168,6 +1235,16 @@ document.addEventListener('submit', async event => {
       }
       openApplication();
     } catch (error) { renderAuthGate(mode, appwriteMessage(error)); }
+    return;
+  }
+  const practitionerForm = event.target.closest('[data-centre-practitioner-create]');
+  if (practitionerForm) {
+    event.preventDefault();
+    const input = Object.fromEntries(new FormData(practitionerForm).entries());
+    const submit = practitionerForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    try { await inviteCentreCreatedPractitioner(input); renderPractitionersView(); showToast('Invitation envoyée. ProAssist sera financé par le centre après activation.'); }
+    catch (error) { submit.disabled = false; showToast(error.message || appwriteMessage(error)); }
     return;
   }
   const locationForm = event.target.closest('[data-location-form]');
@@ -1271,6 +1348,14 @@ document.addEventListener('change', async event => {
 });
 
 document.addEventListener('input', event => {
+  if (event.target.id === 'practitionerDirectorySearch') {
+    practitionerDirectoryQuery = event.target.value;
+    renderPractitionersView();
+    const search = document.getElementById('practitionerDirectorySearch');
+    search?.focus();
+    search?.setSelectionRange(practitionerDirectoryQuery.length, practitionerDirectoryQuery.length);
+    return;
+  }
   const scheduleTime = event.target.closest('[data-schedule-time]');
   if (scheduleTime) {
     const weeklySchedule = normalizeWeeklySchedule(setup.weeklySchedule, setup.openingDays, setup.openStart, setup.openEnd);

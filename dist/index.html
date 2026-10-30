@@ -112,12 +112,7 @@
 
   <template id="practitioners-view">
     <div class="page-head"><div><p class="eyebrow">Équipe du centre</p><h1>Praticiens</h1><p>Présences, accès et connexion à l'écosystème Yulyf.</p></div><button class="primary" data-action="new-practitioner">＋ Inviter un praticien</button></div>
-    <div class="practitioner-grid">
-      <article class="practitioner-card"><span class="avatar xl aqua">SM</span><div><h3>Dr Sarah Martin</h3><p>Psychologue</p><span class="yulyf-status connected">● Yulyf personnel relié</span></div><div class="days"><b>Lun</b><b>Mar</b><b>Mer</b></div><button data-action="open-practitioner">Gérer</button></article>
-      <article class="practitioner-card"><span class="avatar xl peach">ÉL</span><div><h3>Élodie Lambert</h3><p>Kinésithérapeute</p><span class="yulyf-status centre">● Yulyf du centre</span></div><div class="days"><b>Mar</b><b>Mer</b><b>Jeu</b><b>Ven</b></div><button data-action="open-practitioner">Gérer</button></article>
-      <article class="practitioner-card"><span class="avatar xl green">LM</span><div><h3>Lucas Moreau</h3><p>Coach</p><span class="yulyf-status connected">● Yulyf personnel relié</span></div><div class="days"><b>Lun</b><b>Mar</b><b>Jeu</b><b>Ven</b></div><button data-action="open-practitioner">Gérer</button></article>
-        <article class="practitioner-card"><span class="avatar xl violet">TC</span><div><h3>Praticien technique C</h3><p>Compte de test Yulyf</p><span class="yulyf-status connected">● Yulyf personnel relié</span></div><div class="days"><b>Compte technique</b></div><button data-action="open-practitioner">Tester</button></article>
-    </div>
+    <div id="practitionerDirectory"><article class="panel location-empty"><strong>Chargement de l’annuaire Yulyf…</strong></article></div>
     <article class="panel link-explainer"><div><p class="eyebrow">Lien entre les espaces</p><h2>Partager l'utile. Préserver le reste.</h2><p>Le praticien utilise son identité Yulyf, mais le centre ne reçoit jamais son activité privée.</p></div><div class="space-card dark"><strong>Yulyf personnel</strong><span>Dossiers privés <b>FERMÉ</b></span><span>Notes de suivi <b>FERMÉ</b></span><span>Analyses <b>FERMÉ</b></span></div><div class="controlled-link">↔<small>Lien contrôlé</small></div><div class="space-card light"><strong>YulyfCentre</strong><span>Coordonnées du centre <b>OUVERT</b></span><span>Présences <b>OUVERT</b></span><span>Agenda du centre <b>OUVERT</b></span></div></article>
   </template>
 
@@ -179,7 +174,7 @@
       <article class="access-column private-column"><div class="access-title"><span>●</span><div><small>ESPACE</small><h2>Yulyf personnel</h2></div></div><ul><li class="denied">Notes de suivi <b>INTERDIT</b></li><li class="denied">Analyses et YulyfIA <b>INTERDIT</b></li><li class="denied">Consentements médicaux <b>INTERDIT</b></li><li class="denied">Enregistrements de séances <b>INTERDIT</b></li><li class="denied">Clientèle extérieure au centre <b>INTERDIT</b></li></ul></article>
     </div>
     <div class="role-grid"><article class="panel role-card"><span>V</span><div><h3>Valou</h3><p>Supadmin + Support</p></div><b>Accès complet d'administration</b></article><article class="panel role-card"><span>AD</span><div><h3>Administrateur du centre</h3><p>Gestion du centre</p></div><b>Administratif du centre uniquement</b></article><article class="panel role-card"><span>AC</span><div><h3>Accueil</h3><p>Secrétariat</p></div><b>Agenda, contacts et demandes</b></article><article class="panel role-card"><span>PR</span><div><h3>Praticien</h3><p>Professionnel</p></div><b>Ses clients et son espace privé</b></article></div>
-    <article class="panel backoffice-link"><div class="backoffice-logo">LYC</div><div><p class="eyebrow">Gouvernance Yulyf</p><h2>Connexion à BackofficeLYC</h2><p>BackofficeLYC pilote les centres, abonnements, essais, quotas, support, diagnostics, scans de sécurité et éléments Tools. Il ne donne pas au personnel du centre l'accès aux dossiers médicaux.</p></div><div class="backoffice-status"><span>● Liaison prévue</span><small>Prochaine couche : contrat d'échange sécurisé</small></div></article>
+    <article class="panel backoffice-link"><div class="backoffice-logo">LYC</div><div><p class="eyebrow">Gouvernance Yulyf</p><h2>Connexion à BackofficeLYC</h2><p>BackofficeLYC fournit l’annuaire des praticiens, pilote les abonnements, le support, les diagnostics, les scans de sécurité et les éléments Tools. Il ne donne pas au personnel du centre l'accès aux dossiers médicaux.</p></div><div class="backoffice-status"><span>● Liaison active</span><small>Annuaire et abonnements contrôlés</small></div></article>
   </template>
 
   <template id="settings-view">
@@ -219,6 +214,6 @@
     <article class="panel temporary-access-demo"><div><span>⚿</span><div><p class="eyebrow">Après un premier échange seulement</p><h2>Accès temporaire et limité</h2><p>Si le problème ne peut pas être résolu par messages, le centre choisit lui-même la seule rubrique accessible et la durée.</p></div></div><div class="scope-demo"><label>Rubrique accessible<select><option>Agenda du centre</option><option>Facturation</option><option>Documents administratifs</option><option>Paramètres du centre</option></select></label><label>Durée<select><option>1 heure</option><option>4 heures</option><option>8 heures</option><option>24 heures</option></select></label><button class="outline" data-action="grant-demo">Simuler l'autorisation</button></div><p class="audit-note">✓ Expiration automatique · Révocation immédiate · Toutes les actions sont journalisées · Aucun accès aux dossiers médicaux</p></article>
   </template>
 
-  <script src="app.bundle.js?v=20261026-8"></script>
+  <script src="app.bundle.js?v=20261030-1"></script>
 </body>
 </html>

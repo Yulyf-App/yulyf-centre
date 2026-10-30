@@ -2,6 +2,7 @@ const databaseId = 'lyc';
 const centresTableId = 'yulyf_centres';
 const clientsTableId = 'yulyf_centre_clients';
 const linksTableId = 'yulyf_centre_client_links';
+const practitionersTableId = 'yulyf_centre_practitioners';
 const yulyfRecordsTableId = 'records';
 
 function appwriteHeaders(req) {
@@ -37,6 +38,13 @@ function patientReference(payload) {
   return text(payload.patientNumber || payload.patientReference || payload.dossierNumber, 25).toUpperCase();
 }
 function normalizedEmail(value) { return text(value, 320).toLowerCase(); }
+function assignedToCentre(patient, centreId) {
+  if (patient.centreId === centreId) return true;
+  if (Array.isArray(patient.centreIds) && patient.centreIds.includes(centreId)) return true;
+  return Array.isArray(patient.centreAssignments) && patient.centreAssignments.some(item =>
+    typeof item === 'string' ? item === centreId : item?.centreId === centreId && item.active !== false
+  );
+}
 
 export default async ({ req, res, error }) => {
   try {
@@ -63,14 +71,16 @@ export default async ({ req, res, error }) => {
     }
 
     if (body.action === 'syncLinks') {
-      const [clientsResult, linksResult] = await Promise.all([
+      const [clientsResult, linksResult, practitionersResult] = await Promise.all([
         api(req, rowsPath(clientsTableId, [equal('centreId', centreId), limit(500)])),
         api(req, rowsPath(linksTableId, [equal('centreId', centreId), limit(500)])),
+        api(req, rowsPath(practitionersTableId, [equal('centreId', centreId), equal('status', 'active'), limit(500)])),
       ]);
       const clients = clientsResult.rows || [];
       const links = linksResult.rows || [];
       const members = memberships.memberships || [];
-      const practitionerIds = [...new Set([centre.ownerId, ...members.filter(item => item.confirm !== false).map(item => item.userId)].filter(Boolean))];
+      const practitionerRelations = practitionersResult.rows || [];
+      const practitionerIds = [...new Set(practitionerRelations.map(item => item.practitionerUserId).filter(Boolean))];
       let created = 0, updated = 0, matched = 0, awaitingNumber = 0;
 
       for (const practitionerUserId of practitionerIds) {
@@ -80,6 +90,7 @@ export default async ({ req, res, error }) => {
         for (const patientRow of patientRows.rows || []) {
           let patient = {};
           try { patient = JSON.parse(patientRow.payload || '{}'); } catch { continue; }
+          if (!assignedToCentre(patient, centreId)) continue;
           const reference = patientReference(patient);
           const accountId = text(patient.yulyfAccountId || patient.accountId || patient.userId, 36);
           const email = normalizedEmail(patient.email || patientRow.access);

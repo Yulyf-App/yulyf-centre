@@ -8,6 +8,7 @@ const centresTableId = 'yulyf_centres';
 const clientsTableId = 'yulyf_centre_clients';
 const linksTableId = 'yulyf_centre_client_links';
 const recordsTableId = 'records';
+const practitionersTableId = 'yulyf_centre_practitioners';
 const gatewayId = 'yulyf-centre-client-gateway';
 const suffix = Date.now().toString(36);
 const ownerId = `ycc-owner-${suffix}`;
@@ -15,7 +16,7 @@ const outsiderId = `ycc-out-${suffix}`;
 const centreId = `ycc-centre-${suffix}`;
 const password = `YcClient-${suffix}-A1!`;
 const cleanupErrors = [];
-let ownerTables, ownerTeams, teamId, createdClientId, createdLinkId, createdPatientRowId;
+let ownerTables, ownerTeams, teamId, createdClientId, createdLinkId, createdPatientRowId, createdPractitionerRelationId;
 
 function cli(args) {
   const command = process.platform === 'win32' ? process.execPath : 'appwrite';
@@ -51,7 +52,9 @@ try {
   if (clientExecution.status !== 201 || !clientExecution.payload.row?.$id) throw new Error(`La passerelle n’a pas créé le client : ${clientExecution.payload.error || clientExecution.status}`);
   createdClientId = clientExecution.payload.row.$id;
   createdPatientRowId = `ycc-patient-${suffix}`;
-  cli(['tablesdb', 'create-row', '--database-id', databaseId, '--table-id', recordsTableId, '--row-id', createdPatientRowId, '--data', JSON.stringify({ owner: ownerId, kind: 'patients', patient: '', access: clientInput.email, payload: JSON.stringify({ id: createdPatientRowId, first: 'Patient', last: 'Technique', email: clientInput.email, patientNumber: 'YUL-2026-487949/P0001', history: 'Cette donnée privée ne doit jamais être copiée dans YulyfCentre.' }) }), '-R']);
+  createdPractitionerRelationId = `ycc-pract-${suffix}`;
+  cli(['tablesdb', 'create-row', '--database-id', databaseId, '--table-id', practitionersTableId, '--row-id', createdPractitionerRelationId, '--data', JSON.stringify({ centreId, teamId, membershipId: teamId, practitionerUserId: ownerId, practitionerNumber: 'YUL-2026-487949', name: 'Praticien technique', email: `${ownerId}@example.com`, activity: 'Test', status: 'active', accountMode: 'personal', sponsorPlan: '', billedBy: 'practitioner', locationId: '', createdAt: now, updatedAt: now }), '-R']);
+  cli(['tablesdb', 'create-row', '--database-id', databaseId, '--table-id', recordsTableId, '--row-id', createdPatientRowId, '--data', JSON.stringify({ owner: ownerId, kind: 'patients', patient: '', access: clientInput.email, payload: JSON.stringify({ id: createdPatientRowId, first: 'Patient', last: 'Technique', email: clientInput.email, patientNumber: 'YUL-2026-487949/P0001', centreAssignments: [{ centreId, active: true }], history: 'Cette donnée privée ne doit jamais être copiée dans YulyfCentre.' }) }), '-R']);
   const linkExecution = await gateway(owner.functions, 'syncLinks', centreId, {});
   if (linkExecution.status !== 200 || linkExecution.payload.sync?.created !== 1) throw new Error(`La synchronisation automatique n’a pas créé la liaison : ${linkExecution.payload.error || linkExecution.status}`);
 
@@ -86,6 +89,7 @@ try {
     }
   }
   if (createdPatientRowId) { try { cli(['tablesdb', 'delete-row', '--database-id', databaseId, '--table-id', recordsTableId, '--row-id', createdPatientRowId, '-R']); } catch { cleanupErrors.push(createdPatientRowId); } }
+  if (createdPractitionerRelationId) { try { cli(['tablesdb', 'delete-row', '--database-id', databaseId, '--table-id', practitionersTableId, '--row-id', createdPractitionerRelationId, '-R']); } catch { cleanupErrors.push(createdPractitionerRelationId); } }
   if (teamId && ownerTeams) { try { await ownerTeams.delete({ teamId }); } catch { cleanupErrors.push(teamId); } }
   for (const userId of [ownerId, outsiderId]) {
     try { cli(['users', 'delete', '--user-id', userId, '--force', '-R']); } catch { cleanupErrors.push(userId); }
