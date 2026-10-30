@@ -31,6 +31,9 @@ let centreClientLinks = [];
 let practitionerDirectory = [];
 let centrePractitionerRelations = [];
 let practitionerDirectoryQuery = '';
+let practitionerDirectoryLoaded = false;
+let practitionerDirectoryLoading = false;
+let practitionerDirectoryError = '';
 let editingLocationId = '';
 let locationDraftDirty = false;
 let clientImportRows = [];
@@ -492,10 +495,32 @@ async function executePractitionerGateway(action, data = {}) {
 }
 
 async function refreshPractitionerDirectory({ synchronize = false } = {}) {
-  if (!centreRow || !isCentreOwner()) { practitionerDirectory = []; centrePractitionerRelations = []; return; }
+  if (!centreRow || !isCentreOwner()) {
+    practitionerDirectory = [];
+    centrePractitionerRelations = [];
+    practitionerDirectoryLoaded = true;
+    return;
+  }
   const payload = await executePractitionerGateway(synchronize ? 'sync' : 'directory');
   practitionerDirectory = payload.directory || [];
   centrePractitionerRelations = payload.relations || [];
+  practitionerDirectoryLoaded = true;
+  practitionerDirectoryError = '';
+}
+
+async function loadPractitionerDirectory({ synchronize = false } = {}) {
+  if (practitionerDirectoryLoading) return;
+  practitionerDirectoryLoading = true;
+  practitionerDirectoryError = '';
+  try {
+    await refreshPractitionerDirectory({ synchronize });
+  } catch (error) {
+    practitionerDirectoryLoaded = false;
+    practitionerDirectoryError = error?.message || 'L’annuaire Yulyf ne peut pas être chargé.';
+  } finally {
+    practitionerDirectoryLoading = false;
+    if (document.getElementById('practitionerDirectory')) renderPractitionersView();
+  }
 }
 
 function validateCentreClient(data) {
@@ -642,7 +667,7 @@ async function loadCentre() {
     await refreshCentreLocations({ selectPrimary: true });
     await refreshCentreClients();
     await syncCentreClientLinks().catch(() => null);
-    await refreshPractitionerDirectory({ synchronize: true }).catch(() => null);
+    await loadPractitionerDirectory({ synchronize: true });
   }
   return centreRow;
 }
@@ -836,10 +861,20 @@ function practitionerInitials(name = '') {
 function renderPractitionersView() {
   const host = document.getElementById('practitionerDirectory');
   if (!host) return;
+  if (!practitionerDirectoryLoaded && !practitionerDirectoryLoading) void loadPractitionerDirectory();
   const visible = practitionerDirectory.filter(item => matchesPractitionerSearch(item, practitionerDirectoryQuery));
+  const directoryResults = practitionerDirectoryLoading && !practitionerDirectoryLoaded
+    ? '<div class="directory-empty"><strong>Chargement de l’annuaire Yulyf…</strong><p>Les comptes existants vont apparaître automatiquement.</p></div>'
+    : practitionerDirectoryError
+      ? `<div class="directory-empty directory-error"><strong>Impossible de charger l’annuaire Yulyf</strong><p>${safeText(practitionerDirectoryError)}</p><button class="outline" data-action="retry-practitioner-directory">Réessayer</button></div>`
+      : visible.length
+        ? visible.map(item => { const relation = relationForPractitioner(item); return `<article><span class="avatar aqua">${safeText(practitionerInitials(item.name))}</span><div><strong>${safeText(item.name)}</strong><small>${safeText(item.practitionerNumber || item.email)}</small><em>${safeText(item.activity || 'Praticien Yulyf')}</em></div>${relation ? `<span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Déjà lié' : 'Invitation envoyée'}</span>` : `<button class="primary" data-practitioner-invite="${safeText(item.id)}">Inviter à rejoindre le centre</button>`}</article>`; }).join('')
+        : practitionerDirectoryQuery.trim()
+          ? '<div class="directory-empty"><strong>Aucun compte correspondant</strong><p>Vérifie le nom, l’e-mail ou le numéro YUL saisi.</p></div>'
+          : '<div class="directory-empty"><strong>Aucun compte Yulyf disponible</strong><p>L’annuaire partagé ne contient actuellement aucun praticien.</p></div>';
   const relationCards = centrePractitionerRelations.map(relation => `<article class="practitioner-link-card"><span class="avatar xl aqua">${safeText(practitionerInitials(relation.name))}</span><div><h3>${safeText(relation.name)}</h3><p>${safeText(relation.activity || relation.email)}</p><small>${safeText(relation.practitionerNumber || (relation.accountMode === 'centre_created' ? 'Yulyf créé par le centre' : 'Compte Yulyf existant'))}</small></div><span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Lié au centre' : 'Invitation envoyée'}</span><b>${relation.accountMode === 'centre_created' ? 'ProAssist payé par le centre' : 'Abonnement personnel'}</b></article>`).join('');
   host.innerHTML = `<section class="practitioner-links"><div class="panel-head"><div><h2>Praticiens du centre</h2><p>La même liaison est visible ici et dans le Yulyf du praticien.</p></div></div>${relationCards || '<article class="panel location-empty"><strong>Aucun praticien lié</strong><p>Recherche d’abord dans l’annuaire Yulyf.</p></article>'}</section>
-    <section class="panel practitioner-directory-panel"><div class="panel-head"><div><h2>Annuaire des praticiens Yulyf</h2><p>Annuaire existant de BackofficeLYC, sans patient ni donnée privée.</p></div></div><label class="search practitioner-search">⌕<input id="practitionerDirectorySearch" value="${safeText(practitionerDirectoryQuery)}" placeholder="Nom, e-mail ou numéro Yulyf…"></label><div class="practitioner-directory-results">${visible.length ? visible.map(item => { const relation = relationForPractitioner(item); return `<article><span class="avatar aqua">${safeText(practitionerInitials(item.name))}</span><div><strong>${safeText(item.name)}</strong><small>${safeText(item.practitionerNumber || item.email)}</small><em>${safeText(item.activity || 'Praticien Yulyf')}</em></div>${relation ? `<span class="tag ${relation.status === 'active' ? 'mint-tag' : 'gold-tag'}">${relation.status === 'active' ? 'Déjà lié' : 'Invitation envoyée'}</span>` : `<button class="primary" data-practitioner-invite="${safeText(item.id)}">Inviter à rejoindre le centre</button>`}</article>`; }).join('') : '<div class="directory-empty"><strong>Aucun compte Yulyf trouvé</strong><p>Crée une invitation Yulyf financée par le centre ci-dessous.</p></div>'}</div></section>
+    <section class="panel practitioner-directory-panel"><div class="panel-head"><div><h2>Annuaire des praticiens Yulyf</h2><p>Annuaire existant de BackofficeLYC, sans patient ni donnée privée.</p></div></div><label class="search practitioner-search">⌕<input id="practitionerDirectorySearch" value="${safeText(practitionerDirectoryQuery)}" placeholder="Nom, e-mail ou numéro Yulyf…"></label><div class="practitioner-directory-results">${directoryResults}</div></section>
     <form class="panel centre-practitioner-create" data-centre-practitioner-create><div><h2>Praticien absent de l’annuaire</h2><p>Il recevra un Yulyf ProAssist financé par le centre. Ce centre sera son seul lieu au départ.</p></div><div class="access-identity">${field('Nom du praticien *', 'practitionerName', '', 'text', 'maxlength="128"')}${field('E-mail professionnel *', 'practitionerEmail', '', 'email', 'maxlength="320"')}</div><div class="sponsorship-rule"><strong>ProAssist · payé par le centre</strong><span>S’il ajoute ensuite un lieu privé, il devra payer en une fois un abonnement annuel ProAssist ou supérieur.</span></div><button class="primary" type="submit">Créer l’invitation Yulyf du centre</button></form>`;
 }
 
@@ -1087,6 +1122,13 @@ document.addEventListener('click', async event => {
     return;
   }
 
+  const practitionerDirectoryRetry = event.target.closest('[data-action="retry-practitioner-directory"]');
+  if (practitionerDirectoryRetry) {
+    practitionerDirectoryRetry.disabled = true;
+    await loadPractitionerDirectory();
+    return;
+  }
+
   const memberEdit = event.target.closest('[data-member-edit]');
   if (memberEdit) {
     const member = centreMembers.find(item => item.$id === memberEdit.dataset.memberEdit);
@@ -1148,7 +1190,7 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
   if (!action) return;
   if (action.dataset.action === 'logout') {
-    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; centreClients = []; centreClientLinks = []; practitionerDirectory = []; centrePractitionerRelations = []; clientImportRows = []; editingClientId = ''; editingLocationId = ''; locationDraftDirty = false; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
+    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; centreClients = []; centreClientLinks = []; practitionerDirectory = []; centrePractitionerRelations = []; practitionerDirectoryLoaded = false; practitionerDirectoryLoading = false; practitionerDirectoryError = ''; clientImportRows = []; editingClientId = ''; editingLocationId = ''; locationDraftDirty = false; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
   }
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',
