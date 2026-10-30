@@ -18,6 +18,7 @@ assert.equal(matchesPractitionerSearch(practitioner, 'médecin absent'), false);
 const appSource = readFileSync(new URL('../dist/app.js', import.meta.url), 'utf8');
 assert.match(appSource, /Actualiser l’annuaire/);
 assert.match(appSource, /directory-result-status/);
-assert.match(appSource, /setTimeout\(\(\) => \{\s*void loadPractitionerDirectory\(\);\s*\}, 250\)/);
+assert.match(appSource, /if \(results\) results\.innerHTML = directoryView\.results/);
+assert.doesNotMatch(appSource, /practitionerDirectorySearchTimer/);
 
-console.log(JSON.stringify({ status: 'ok', typoTolerant: true, accentsNormalized: true, multiFieldSearch: true, liveRefresh: true, visibleResultCount: true }));
+console.log(JSON.stringify({ status: 'ok', typoTolerant: true, accentsNormalized: true, multiFieldSearch: true, stableInputFocus: true, visibleResultCount: true }));
