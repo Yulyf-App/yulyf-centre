@@ -889,8 +889,8 @@ function renderPractitionersView() {
 }
 
 async function inviteDirectoryPractitioner(practitioner) {
-  const payload = await executePractitionerGateway('invite', { practitionerUserId: practitioner.id, practitionerNumber: practitioner.practitionerNumber, name: practitioner.name, email: practitioner.email, activity: practitioner.activity, returnUrl: `${location.origin}${location.pathname}` });
-  centrePractitionerRelations = payload.relations || centrePractitionerRelations;
+  await executePractitionerGateway('invite', { practitionerUserId: practitioner.id, practitionerNumber: practitioner.practitionerNumber, name: practitioner.name, email: practitioner.email, activity: practitioner.activity, returnUrl: `${location.origin}${location.pathname}` });
+  await loadPractitionerDirectory();
   await refreshCentreMembers();
 }
 

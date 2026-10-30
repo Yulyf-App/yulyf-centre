@@ -17,6 +17,7 @@ assert.equal(matchesPractitionerSearch(practitioner, 'médecin absent'), false);
 
 const appSource = readFileSync(new URL('../dist/app.js', import.meta.url), 'utf8');
 const settingsStyles = readFileSync(new URL('../dist/settings.css', import.meta.url), 'utf8');
+const gatewaySource = readFileSync(new URL('../functions/practitioner-gateway/index.js', import.meta.url), 'utf8');
 assert.match(appSource, /Actualiser l’annuaire/);
 assert.match(appSource, /directory-result-status/);
 assert.match(appSource, /data-practitioner-card/);
@@ -26,5 +27,8 @@ assert.match(appSource, /if \(synchronize\) await executePractitionerGateway\('s
 assert.match(appSource, /if \(!Array\.isArray\(payload\.directory\)\) throw new Error/);
 assert.doesNotMatch(appSource, /practitionerDirectorySearchTimer/);
 assert.match(settingsStyles, /\.practitioner-directory-results>article\[hidden\]\{display:none!important\}/);
+assert.match(gatewaySource, /const body = \{ roles, name, url: text\(input\.returnUrl, 512\), email: targetEmail \}/);
+assert.doesNotMatch(gatewaySource, /practitionerUserId \? \{ userId: practitionerUserId \}/);
+assert.match(appSource, /await executePractitionerGateway\('invite',[\s\S]*?await loadPractitionerDirectory\(\);[\s\S]*?await refreshCentreMembers\(\);/);
 
 console.log(JSON.stringify({ status: 'ok', typoTolerant: true, accentsNormalized: true, multiFieldSearch: true, stableInputFocus: true, persistentDirectoryCards: true, synchronousDirectoryRead: true, visibleResultCount: true }));

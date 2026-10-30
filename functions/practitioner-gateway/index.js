@@ -98,7 +98,9 @@ async function createRelation(req, input, centre, memberships) {
   if (existing && existing.status !== 'ended') throw Object.assign(new Error('Ce praticien est déjà lié ou invité dans ce centre.'), { status: 409 });
   const roles = ['yc-praticien', 'p-dashboard-view', 'p-clients-view', 'p-practitioners-none', 'p-agenda-edit', 'p-requests-view', 'p-billing-none', 'p-documents-view', 'p-statistics-none', 'p-settings-none'];
   const currentMembership = memberships.find(item => (practitionerUserId && item.userId === practitionerUserId) || email(item.userEmail) === targetEmail);
-  const body = { roles, name, url: text(input.returnUrl, 512), ...(practitionerUserId ? { userId: practitionerUserId } : { email: targetEmail }) };
+  // L’adresse e-mail doit toujours être utilisée ici. Avec userId, Appwrite ajoute
+  // directement le compte existant à l’équipe et n’envoie aucune invitation.
+  const body = { roles, name, url: text(input.returnUrl, 512), email: targetEmail };
   const membership = currentMembership || await api(req, `/teams/${encode(centre.teamId)}/memberships`, { method: 'POST', body: JSON.stringify(body) });
   const now = new Date().toISOString();
   const data = {
