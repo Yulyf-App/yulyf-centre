@@ -164,7 +164,7 @@ async function createRelation(req, input, centre, memberships) {
     const origin = (process.env.LYC_SITE_ORIGIN || 'https://yulyf.me').replace(/\/$/, '');
     const notification = await fetch(`${origin}/api/lyc/yulyf-centre-invitation`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
+      headers: { 'content-type': 'application/json', 'x-yulyf-centre-bridge-secret': secret },
       body: JSON.stringify({ relationId: relation.$id, token: inviteToken }),
     }).then(async response => {
       const payload = await response.json().catch(() => ({}));

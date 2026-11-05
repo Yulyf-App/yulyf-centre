@@ -29,6 +29,8 @@ assert.doesNotMatch(appSource, /practitionerDirectorySearchTimer/);
 assert.match(settingsStyles, /\.practitioner-directory-results>article\[hidden\]\{display:none!important\}/);
 assert.match(gatewaySource, /inviteTokenHash/);
 assert.match(gatewaySource, /LYC_CENTRE_BRIDGE_SECRET/);
+assert.match(gatewaySource, /x-yulyf-centre-bridge-secret/);
+assert.doesNotMatch(gatewaySource, /authorization:\s*`Bearer \$\{secret\}`/);
 assert.match(gatewaySource, /body\.action === 'accept'/);
 assert.match(gatewaySource, /bridgeAuthenticated/);
 assert.match(gatewaySource, /timingSafeEqual/);
