@@ -14,6 +14,8 @@ const encode = value => encodeURIComponent(String(value));
 const equal = (attribute, value) => JSON.stringify({ method: 'equal', attribute, values: Array.isArray(value) ? value : [value] });
 const limit = value => JSON.stringify({ method: 'limit', values: [value] });
 const rowsPath = (tableId, queries = []) => `/tablesdb/${databaseId}/tables/${tableId}/rows${queries.length ? `?${queries.map(item => `queries[]=${encode(item)}`).join('&')}` : ''}`;
+const hashToken = value => crypto.createHash('sha256').update(value).digest('hex');
+const validId = value => /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/.test(value);
 
 async function api(req, path, options = {}) {
   const response = await fetch(`${process.env.APPWRITE_FUNCTION_API_ENDPOINT}${path}`, {
@@ -61,6 +63,32 @@ async function context(req, centreId, userId, teamId) {
 async function listRelations(req, centreId) {
   const result = await api(req, rowsPath(relationsTableId, [equal('centreId', centreId), limit(500)]));
   return result.rows || [];
+}
+
+function bridgeAuthenticated(req, provided) {
+  const expected = process.env.LYC_CENTRE_BRIDGE_SECRET || '';
+  const header = text(req.headers['x-yulyf-centre-bridge-secret'], 512);
+  const candidate = text(provided || header, 512);
+  return expected.length > 0
+    && expected.length === candidate.length
+    && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(candidate));
+}
+
+async function acceptRelation(req, body) {
+  if (!bridgeAuthenticated(req, body.secret)) throw Object.assign(new Error('Passerelle refusée.'), { status: 401 });
+  const relationId = text(body.relationId, 36);
+  const token = text(body.token, 256);
+  if (!validId(relationId) || token.length < 32) throw Object.assign(new Error('Invitation invalide.'), { status: 400 });
+  const relation = await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relationId)}`);
+  const centre = await api(req, `/tablesdb/${databaseId}/tables/${centresTableId}/rows/${encode(relation.centreId)}`);
+  if (relation.status === 'active') return { accepted: true, alreadyAccepted: true, centreName: text(centre.publicName || centre.name || 'ce centre', 128) };
+  if (relation.status !== 'invited' || relation.inviteTokenHash !== hashToken(token)) throw Object.assign(new Error('Invitation expirée.'), { status: 409 });
+  const memberships = await api(req, `/teams/${encode(relation.teamId)}/memberships?total=false`);
+  let membership = memberships.memberships?.find(item => item.userId === relation.practitionerUserId);
+  if (!membership) membership = await api(req, `/teams/${encode(relation.teamId)}/memberships`, { method: 'POST', body: JSON.stringify({ userId: relation.practitionerUserId, roles: practitionerRoles }) });
+  const now = new Date().toISOString();
+  await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relationId)}`, { method: 'PATCH', body: JSON.stringify({ data: { membershipId: membership.$id, status: 'active', inviteTokenHash: '', acceptedAt: now, updatedAt: now } }) });
+  return { accepted: true, alreadyAccepted: false, membershipId: membership.$id, centreName: text(centre.publicName || centre.name || 'ce centre', 128) };
 }
 
 async function directorySources(req) {
@@ -201,9 +229,10 @@ async function synchronize(req, centre, memberships, relations) {
 export default async ({ req, res, error }) => {
   try {
     if (req.method !== 'POST') return res.json({ error: 'Méthode refusée.' }, 405);
+    const body = JSON.parse(req.bodyText || '{}');
+    if (body.action === 'accept') return res.json(await acceptRelation(req, body));
     const userId = req.headers['x-appwrite-user-id'];
     if (!userId) return res.json({ error: 'Connexion requise.' }, 401);
-    const body = JSON.parse(req.bodyText || '{}');
     const centreId = text(body.centreId, 36);
     if (!centreId) return res.json({ error: 'Centre manquant.' }, 400);
     const teamId = text(body.teamId, 36);
