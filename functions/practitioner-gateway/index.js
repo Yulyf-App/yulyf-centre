@@ -83,11 +83,15 @@ async function acceptRelation(req, body) {
   const centre = await api(req, `/tablesdb/${databaseId}/tables/${centresTableId}/rows/${encode(relation.centreId)}`);
   if (relation.status === 'active') return { accepted: true, alreadyAccepted: true, centreName: text(centre.publicName || centre.name || 'ce centre', 128) };
   if (relation.status !== 'invited' || relation.inviteTokenHash !== hashToken(token)) throw Object.assign(new Error('Invitation expirée.'), { status: 409 });
+  const practitionerUserId = text(relation.practitionerUserId || body.practitionerUserId, 36);
+  if (!validId(practitionerUserId)) throw Object.assign(new Error('Compte praticien manquant.'), { status: 400 });
+  const account = await api(req, `/users/${encode(practitionerUserId)}`);
+  if (email(account.email) !== email(relation.email)) throw Object.assign(new Error('Le compte praticien ne correspond pas à l’invitation.'), { status: 403 });
   const memberships = await api(req, `/teams/${encode(relation.teamId)}/memberships?total=false`);
-  let membership = memberships.memberships?.find(item => item.userId === relation.practitionerUserId);
-  if (!membership) membership = await api(req, `/teams/${encode(relation.teamId)}/memberships`, { method: 'POST', body: JSON.stringify({ userId: relation.practitionerUserId, roles: practitionerRoles }) });
+  let membership = memberships.memberships?.find(item => item.userId === practitionerUserId);
+  if (!membership) membership = await api(req, `/teams/${encode(relation.teamId)}/memberships`, { method: 'POST', body: JSON.stringify({ userId: practitionerUserId, roles: practitionerRoles }) });
   const now = new Date().toISOString();
-  await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relationId)}`, { method: 'PATCH', body: JSON.stringify({ data: { membershipId: membership.$id, status: 'active', inviteTokenHash: '', acceptedAt: now, updatedAt: now } }) });
+  await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relationId)}`, { method: 'PATCH', body: JSON.stringify({ data: { membershipId: membership.$id, practitionerUserId, practitionerNumber: text(body.practitionerNumber || relation.practitionerNumber, 32), status: 'active', inviteTokenHash: '', acceptedAt: now, updatedAt: now }, permissions: permissions(centre.ownerId, relation.teamId, practitionerUserId) }) });
   return { accepted: true, alreadyAccepted: false, membershipId: membership.$id, centreName: text(centre.publicName || centre.name || 'ce centre', 128) };
 }
 
@@ -119,7 +123,7 @@ function directory(relations, subscriptionsResult, usersResult) {
   }).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
 }
 
-async function createRelation(req, input, centre, memberships) {
+async function createRelation(req, input, centre) {
   const practitionerUserId = text(input.practitionerUserId, 36);
   const targetEmail = email(input.email);
   const name = text(input.name, 128);
@@ -128,18 +132,13 @@ async function createRelation(req, input, centre, memberships) {
   const existing = (await listRelations(req, centre.$id)).find(item => (practitionerUserId && item.practitionerUserId === practitionerUserId) || email(item.email) === targetEmail);
   if (existing && existing.status !== 'ended') throw Object.assign(new Error('Ce praticien est déjà lié ou invité dans ce centre.'), { status: 409 });
   const now = new Date().toISOString();
-  const inviteToken = practitionerUserId ? crypto.randomBytes(32).toString('base64url') : '';
-  const inviteTokenHash = inviteToken ? crypto.createHash('sha256').update(inviteToken).digest('hex') : '';
-  let membership = null;
-  if (!practitionerUserId) {
-    const currentMembership = memberships.find(item => email(item.userEmail) === targetEmail);
-    membership = currentMembership || await api(req, `/teams/${encode(centre.teamId)}/memberships`, { method: 'POST', body: JSON.stringify({ roles: practitionerRoles, name, url: text(input.returnUrl, 512), email: targetEmail }) });
-  }
+  const inviteToken = crypto.randomBytes(32).toString('base64url');
+  const inviteTokenHash = crypto.createHash('sha256').update(inviteToken).digest('hex');
   const data = {
     centreId: centre.$id,
     teamId: centre.teamId,
-    membershipId: text(membership?.$id, 36),
-    practitionerUserId: practitionerUserId || text(membership?.userId, 36),
+    membershipId: '',
+    practitionerUserId,
     practitionerNumber: text(input.practitionerNumber, 32),
     name,
     email: targetEmail,
@@ -155,28 +154,25 @@ async function createRelation(req, input, centre, memberships) {
     updatedAt: now,
   };
   const relation = await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows`, { method: 'POST', body: JSON.stringify({ rowId: 'unique()', data, permissions: permissions(centre.ownerId, centre.teamId, data.practitionerUserId) }) });
-  if (practitionerUserId) {
-    const secret = process.env.LYC_CENTRE_BRIDGE_SECRET || '';
-    if (!secret) {
-      await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relation.$id)}`, { method: 'DELETE' }).catch(() => {});
-      throw Object.assign(new Error('Le canal sécurisé YulyfCentre → Yulyf n’est pas configuré.'), { status: 503 });
-    }
-    const origin = (process.env.LYC_SITE_ORIGIN || 'https://yulyf.me').replace(/\/$/, '');
-    const notification = await fetch(`${origin}/api/lyc/yulyf-centre-invitation`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-yulyf-centre-bridge-secret': secret },
-      body: JSON.stringify({ relationId: relation.$id, token: inviteToken }),
-    }).then(async response => {
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw Object.assign(new Error(payload.error || `Notification Yulyf refusée (${response.status}).`), { status: 502 });
-      return payload;
-    }).catch(async cause => {
-      await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relation.$id)}`, { method: 'DELETE' }).catch(() => {});
-      throw cause;
-    });
-    return { relation, notification };
+  const secret = process.env.LYC_CENTRE_BRIDGE_SECRET || '';
+  if (!secret) {
+    await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relation.$id)}`, { method: 'DELETE' }).catch(() => {});
+    throw Object.assign(new Error('Le canal sécurisé YulyfCentre → Yulyf n’est pas configuré.'), { status: 503 });
   }
-  return { relation, membership };
+  const origin = (process.env.LYC_SITE_ORIGIN || 'https://yulyf.me').replace(/\/$/, '');
+  const notification = await fetch(`${origin}/api/lyc/yulyf-centre-invitation`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-yulyf-centre-bridge-secret': secret },
+    body: JSON.stringify({ relationId: relation.$id, token: inviteToken }),
+  }).then(async response => {
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw Object.assign(new Error(payload.error || `Notification Yulyf refusée (${response.status}).`), { status: 502 });
+    return payload;
+  }).catch(async cause => {
+    await api(req, `/tablesdb/${databaseId}/tables/${relationsTableId}/rows/${encode(relation.$id)}`, { method: 'DELETE' }).catch(() => {});
+    throw cause;
+  });
+  return { relation, notification };
 }
 
 const dayNumber = { Dim: 0, Lun: 1, Mar: 2, Mer: 3, Jeu: 4, Ven: 5, Sam: 6 };
@@ -248,7 +244,7 @@ export default async ({ req, res, error }) => {
     const [{ centre, memberships }, initialRelations] = await Promise.all([context(req, centreId, userId, teamId), listRelations(req, centreId)]);
     let relations = initialRelations;
     if (body.action === 'invite') {
-      const result = await createRelation(req, body.data || {}, centre, memberships);
+      const result = await createRelation(req, body.data || {}, centre);
       relations = await listRelations(req, centreId);
       return res.json({ ...result, relations });
     }
