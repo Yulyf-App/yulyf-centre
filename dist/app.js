@@ -2,6 +2,7 @@ import { Account, Client, Functions, ID, Permission, Query, Role, Storage, Table
 import readXlsxFile from 'read-excel-file/browser';
 import { normalizeWebsite, validWebsite } from './website.js';
 import { matchesPractitionerSearch } from './practitioner-search.js';
+import { centreMonthlySubscription } from './subscription-summary.js';
 
 const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
 const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
@@ -817,6 +818,21 @@ function settingsHeader(title, text, badge = '') {
   return `<div class="settings-section-head"><div>${badge ? `<p class="eyebrow">${badge}</p>` : ''}<h2>${title}</h2><p>${text}</p></div></div>`;
 }
 
+function subscriptionSummaryPanel() {
+  const summary = centreMonthlySubscription(centrePractitionerRelations);
+  const sponsoredLabel = `${summary.sponsoredPractitioners} praticien${summary.sponsoredPractitioners > 1 ? 's' : ''}`;
+  const personalLabel = `${summary.personalYulyfPractitioners} praticien${summary.personalYulyfPractitioners > 1 ? 's' : ''}`;
+  return `<article class="panel subscription-summary">
+    <div class="subscription-summary-head"><div><small>MOIS COURANT</small><h3>${safeText(summary.monthLabel)}</h3></div><span class="tag gold-tag">Démonstration</span></div>
+    <div class="subscription-total"><span>Montant du mois</span><strong>${summary.totalAmount} € <em>/ mois</em></strong></div>
+    <div class="subscription-breakdown">
+      <div><span><b>Base YulyfCentre</b><small>Abonnement du centre</small></span><strong>${summary.baseAmount} €</strong></div>
+      <div><span><b>Yulyf financés par le centre</b><small>${sponsoredLabel} × ${summary.sponsoredPractitionerPrice} € / mois</small></span><strong>${summary.practitionerAmount} €</strong></div>
+      <div><span><b>Praticiens avec leur propre Yulyf</b><small>${personalLabel} avec un abonnement personnel</small></span><strong>${summary.personalYulyfAmount} €</strong></div>
+    </div>
+  </article>`;
+}
+
 function memberRoleLabel(member) {
   if (member.roles?.includes('owner')) return 'Propriétaire du centre';
   return currentRoleLabel(member);
@@ -1052,7 +1068,7 @@ function renderSettings(section) {
       <article class="panel role-builder"><div class="role-builder-head"><div><h3>${setup.accessMembershipId ? 'Modifier cet accès' : 'Inviter une personne'}</h3><p>Le lien reçu permet d’utiliser un compte Yulyf existant ou d’en créer un, sans ouvrir les données privées.</p></div><label>Rôle de départ<select id="rolePreset"><option ${setup.accessRole === 'Accueil' ? 'selected' : ''}>Accueil</option><option ${setup.accessRole === 'Administrateur du centre' ? 'selected' : ''}>Administrateur du centre</option><option ${setup.accessRole === 'Comptabilité' ? 'selected' : ''}>Comptabilité</option><option ${setup.accessRole === 'Praticien' ? 'selected' : ''}>Praticien</option><option ${setup.accessRole === 'Personnalisé' ? 'selected' : ''}>Personnalisé</option></select></label></div><div class="access-identity">${field('Nom de la personne', 'accessName', setup.accessName, 'text', 'data-access-field')}${field('Adresse e-mail', 'accessEmail', setup.accessEmail, 'email', `data-access-field ${setup.accessMembershipId ? 'readonly' : ''}`)}</div><div class="permission-table"><div class="permission-row permission-head"><strong>Onglet</strong><span>Droit accordé</span></div>${permissionRows(setup.rolePermissions)}</div><div class="permission-legend"><span><i class="edit-dot"></i> Peut voir et interagir</span><span><i class="view-dot"></i> Lecture seule</span><span><i class="none-dot"></i> Onglet invisible</span></div><div class="role-builder-actions"><div class="role-lock">⚿ Valou · Supadmin + Support conserve toujours l’accès complet.</div>${setup.accessMembershipId ? '<button class="outline" data-action="cancel-access-edit">Annuler</button>' : ''}<button class="primary" data-action="save-centre-access">${setup.accessMembershipId ? 'Enregistrer les droits' : 'Envoyer l’invitation'}</button></div></article>`,
     'billing-settings': `${settingsHeader('Facturation du centre', 'Les réglages administratifs du centre restent séparés de la facturation personnelle des praticiens.')}${simpleToggleCard('TVA, compte bancaire et numérotation des factures', 'billingReady', setup.billingReady)}`,
     notifications: `${settingsHeader('Notifications', 'Configure les confirmations, rappels de rendez-vous et messages administratifs.')}${simpleToggleCard('Rappels automatiques et e-mails du centre', 'notificationsReady', setup.notificationsReady)}`,
-    subscription: `${settingsHeader('Abonnement YulyfCentre', 'L’abonnement et le nombre de praticiens seront contrôlés depuis BackofficeLYC.')}<article class="panel subscription-card"><div><small>BASE CENTRE</small><strong>33 € <em>/ mois</em></strong><p>+ 12 € / mois par praticien qui n’a pas déjà Yulyf</p></div><span class="tag gold-tag">Démonstration</span></article>`,
+    subscription: `${settingsHeader('Abonnement YulyfCentre', 'Le montant mensuel est calculé selon les praticiens actifs et contrôlé depuis BackofficeLYC.')}${subscriptionSummaryPanel()}`,
     terms: `${settingsHeader('Conditions et consentements', 'Centralise les conditions d’utilisation du centre et les informations administratives remises au client.')}${simpleToggleCard('Conditions du centre relues et prêtes', 'termsReady', setup.termsReady)}`
   };
   pane.innerHTML = pages[section] || pages.overview;
