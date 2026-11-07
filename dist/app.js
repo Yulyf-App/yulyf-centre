@@ -564,6 +564,10 @@ async function openTechnicalDemo(link) {
   try {
     const payload = await executePractitionerGateway('demo_handoff', { role });
     if (!payload.handoff) throw new Error('Le passage sécurisé n’a pas été transmis.');
+    if (role === 'backoffice') {
+      window.location.assign(`https://yulyf.me/backoffice#centre-demo=${encodeURIComponent(payload.handoff)}`);
+      return;
+    }
     window.location.assign(`https://yulyf.me/?showcase=technical&role=${encodeURIComponent(role)}#technical-demo=${encodeURIComponent(payload.handoff)}`);
   } catch (error) {
     link.removeAttribute('aria-disabled');

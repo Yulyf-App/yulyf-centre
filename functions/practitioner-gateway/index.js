@@ -45,12 +45,18 @@ async function usersBy(req, attribute, value) {
   return result.users || [];
 }
 
-async function demoHandoff(req, centre, role) {
+async function demoHandoff(req, centre, role, requesterUserId) {
   if (!demoCentres.has(centre.$id) && !demoOwners.has(centre.ownerId)) {
     throw Object.assign(new Error('Le passage direct est réservé aux environnements de démonstration.'), { status: 403 });
   }
-  if (!['practitioner', 'patient'].includes(role)) {
+  if (!['backoffice', 'practitioner', 'patient'].includes(role)) {
     throw Object.assign(new Error('Démonstration inconnue.'), { status: 400 });
+  }
+  if (role === 'backoffice') {
+    if (!demoOwners.has(requesterUserId)) throw Object.assign(new Error('Le BackofficeLYC est réservé au compte Supadmin de démonstration.'), { status: 403 });
+    const token = await api(req, `/users/${encode(requesterUserId)}/tokens`, { method: 'POST', body: JSON.stringify({ length: 64, expire: 120 }) });
+    if (!token.secret) throw Object.assign(new Error('Le passage sécurisé n’a pas pu être créé.'), { status: 503 });
+    return { role, handoff: Buffer.from(JSON.stringify({ userId: requesterUserId, secret: token.secret, space: 'backoffice' })).toString('base64url') };
   }
   const practitionerName = 'Praticien technique C';
   const practitioner = (await usersBy(req, 'name', practitionerName)).find(item => normalize(item.name) === normalize(practitionerName));
@@ -306,7 +312,7 @@ export default async ({ req, res, error }) => {
       return res.json({ relations, directory: directory(relations, ...sources), pricing: subscriptionPricing(sources[2], sources[3]) });
     }
     const verified = await context(req, centreId, userId, teamId);
-    if (body.action === 'demo_handoff') return res.json(await demoHandoff(req, verified.centre, text(body.data?.role, 32)));
+    if (body.action === 'demo_handoff') return res.json(await demoHandoff(req, verified.centre, text(body.data?.role, 32), userId));
     const [{ centre, memberships }, initialRelations] = await Promise.all([Promise.resolve(verified), listRelations(req, centreId)]);
     let relations = initialRelations;
     if (body.action === 'invite') {
