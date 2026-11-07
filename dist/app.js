@@ -32,6 +32,7 @@ let centreClients = [];
 let centreClientLinks = [];
 let practitionerDirectory = [];
 let centrePractitionerRelations = [];
+let centreSubscriptionPricing = null;
 let practitionerDirectoryQuery = '';
 let practitionerDirectoryLoaded = false;
 let practitionerDirectoryLoading = false;
@@ -558,6 +559,7 @@ async function refreshPractitionerDirectory({ synchronize = false } = {}) {
   if (!centreRow || !isCentreOwner()) {
     practitionerDirectory = [];
     centrePractitionerRelations = [];
+    centreSubscriptionPricing = null;
     practitionerDirectoryLoaded = true;
     return;
   }
@@ -566,6 +568,7 @@ async function refreshPractitionerDirectory({ synchronize = false } = {}) {
   if (!Array.isArray(payload.directory)) throw new Error('L’annuaire Yulyf a répondu sans transmettre sa liste.');
   practitionerDirectory = payload.directory || [];
   centrePractitionerRelations = payload.relations || [];
+  centreSubscriptionPricing = payload.pricing || null;
   practitionerDirectoryLoaded = true;
   practitionerDirectoryError = '';
 }
@@ -878,15 +881,16 @@ function settingsHeader(title, text, badge = '') {
 }
 
 function subscriptionSummaryPanel() {
-  const summary = centreMonthlySubscription(centrePractitionerRelations);
+  const summary = centreMonthlySubscription(centrePractitionerRelations, centreSubscriptionPricing);
   const sponsoredLabel = `${summary.sponsoredPractitioners} praticien${summary.sponsoredPractitioners > 1 ? 's' : ''}`;
   const personalLabel = `${summary.personalYulyfPractitioners} praticien${summary.personalYulyfPractitioners > 1 ? 's' : ''}`;
+  if (!summary.pricingAvailable) return `<article class="panel subscription-summary"><div class="subscription-summary-head"><div><small>TARIFICATION</small><h3>Synchronisation en cours</h3></div><span class="tag gold-tag">BackofficeLYC</span></div><div class="directory-empty directory-error"><strong>Tarifs indisponibles</strong><p>YulyfCentre n’affiche aucun montant de remplacement. Actualise l’annuaire pour reprendre le tarif annuel défini dans BackofficeLYC.</p><button class="outline" data-action="retry-practitioner-directory">Actualiser les tarifs</button></div></article>`;
   return `<article class="panel subscription-summary">
-    <div class="subscription-summary-head"><div><small>MOIS COURANT</small><h3>${safeText(summary.monthLabel)}</h3></div><span class="tag gold-tag">Démonstration</span></div>
+    <div class="subscription-summary-head"><div><small>MOIS COURANT · ENGAGEMENT ANNUEL</small><h3>${safeText(summary.monthLabel)}</h3></div><span class="tag gold-tag">12 mensualités</span></div>
     <div class="subscription-total"><span>Montant du mois</span><strong>${summary.totalAmount} € <em>/ mois</em></strong></div>
     <div class="subscription-breakdown">
-      <div><span><b>Base YulyfCentre</b><small>Abonnement du centre</small></span><strong>${summary.baseAmount} €</strong></div>
-      <div><span><b>Yulyf financés par le centre</b><small>${sponsoredLabel} × ${summary.sponsoredPractitionerPrice} € / mois</small></span><strong>${summary.practitionerAmount} €</strong></div>
+      <div><span><b>Base YulyfCentre</b><small>${summary.baseAnnualPrice} € / an, payable en 12 mensualités</small></span><strong>${summary.baseAmount} €</strong></div>
+      <div><span><b>Yulyf ProAssist financés par le centre</b><small>${sponsoredLabel} × ${summary.sponsoredPractitionerPrice} € / mois · ${summary.sponsoredAnnualPrice} € / an chacun</small></span><strong>${summary.practitionerAmount} €</strong></div>
       <div><span><b>Praticiens avec leur propre Yulyf</b><small>${personalLabel} avec un abonnement personnel</small></span><strong>${summary.personalYulyfAmount} €</strong></div>
     </div>
   </article>`;
@@ -1276,7 +1280,7 @@ document.addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
   if (!action) return;
   if (action.dataset.action === 'logout') {
-    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; centreClients = []; centreClientLinks = []; practitionerDirectory = []; centrePractitionerRelations = []; practitionerDirectoryLoaded = false; practitionerDirectoryLoading = false; practitionerDirectoryError = ''; clientImportRows = []; editingClientId = ''; editingLocationId = ''; locationDraftDirty = false; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
+    return account.deleteSession({ sessionId: 'current' }).catch(() => {}).finally(() => { currentUser = null; centreRow = null; centreMembership = null; centreMembers = []; centreMemberProfiles = []; centreLocations = []; centreClients = []; centreClientLinks = []; practitionerDirectory = []; centrePractitionerRelations = []; centreSubscriptionPricing = null; practitionerDirectoryLoaded = false; practitionerDirectoryLoading = false; practitionerDirectoryError = ''; clientImportRows = []; editingClientId = ''; editingLocationId = ''; locationDraftDirty = false; document.body.classList.add('auth-pending'); renderAuthGate('login', 'Vous êtes déconnecté.'); });
   }
   const messages = {
     'new-appointment': 'Formulaire de rendez-vous prêt pour la prochaine couche.',

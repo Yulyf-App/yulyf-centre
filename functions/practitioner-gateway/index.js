@@ -99,7 +99,27 @@ async function directorySources(req) {
   return Promise.all([
     api(req, rowsPath(adminTableId, [equal('kind', 'subscription'), limit(500)])),
     api(req, '/users?total=false'),
+    api(req, rowsPath(adminTableId, [equal('kind', 'subscription_catalog'), limit(1)])),
+    api(req, rowsPath(adminTableId, [equal('kind', 'centre_subscription_pricing'), limit(1)])),
   ]);
+}
+
+function subscriptionPricing(catalogResult, centrePricingResult) {
+  const catalog = parsePayload(catalogResult?.rows?.[0]);
+  const centrePricing = parsePayload(centrePricingResult?.rows?.[0]);
+  const proAssist = Array.isArray(catalog.offers) ? catalog.offers.find(offer => offer?.id === 'yulyf_ai' && offer?.active !== false) : null;
+  const annualBasePrice = Number(centrePricing.annualBasePrice);
+  const sponsoredMonthlyPrice = Number(proAssist?.price);
+  if (!Number.isFinite(annualBasePrice) || annualBasePrice < 0 || !Number.isFinite(sponsoredMonthlyPrice) || sponsoredMonthlyPrice < 0) {
+    return { source: 'unavailable', installments: 12 };
+  }
+  return {
+    source: 'backoffice',
+    installments: 12,
+    annualBasePrice: Math.round(annualBasePrice * 100) / 100,
+    sponsoredPlanId: 'yulyf_ai',
+    sponsoredAnnualPrice: Math.round(sponsoredMonthlyPrice * 12 * 100) / 100,
+  };
 }
 
 function directory(relations, subscriptionsResult, usersResult) {
@@ -239,7 +259,7 @@ export default async ({ req, res, error }) => {
         directorySources(req),
       ]);
       void centre; void memberships;
-      return res.json({ relations, directory: directory(relations, ...sources) });
+      return res.json({ relations, directory: directory(relations, ...sources), pricing: subscriptionPricing(sources[2], sources[3]) });
     }
     const [{ centre, memberships }, initialRelations] = await Promise.all([context(req, centreId, userId, teamId), listRelations(req, centreId)]);
     let relations = initialRelations;
@@ -252,7 +272,7 @@ export default async ({ req, res, error }) => {
       const sync = await synchronize(req, centre, memberships, relations);
       relations = await listRelations(req, centreId);
       const sources = await directorySources(req);
-      return res.json({ sync, relations, directory: directory(relations, ...sources) });
+      return res.json({ sync, relations, directory: directory(relations, ...sources), pricing: subscriptionPricing(sources[2], sources[3]) });
     }
     return res.json({ error: 'Action inconnue.' }, 400);
   } catch (cause) {

@@ -5,19 +5,26 @@ const summary = centreMonthlySubscription([
   { status: 'active', accountMode: 'centre_created', billedBy: 'centre' },
   { status: 'active', accountMode: 'personal', billedBy: 'practitioner' },
   { status: 'invited', accountMode: 'centre_created', billedBy: 'centre' },
-], new Date('2026-11-07T12:00:00+01:00'));
+], { source: 'backoffice', annualBasePrice: 396, sponsoredAnnualPrice: 239.88, installments: 12 }, new Date('2026-11-07T12:00:00+01:00'));
 
 assert.equal(summary.monthLabel, 'Novembre 2026');
 assert.equal(summary.baseAmount, 33);
+assert.equal(summary.baseAnnualPrice, 396);
 assert.equal(summary.sponsoredPractitioners, 1);
-assert.equal(summary.practitionerAmount, 12);
+assert.equal(summary.sponsoredPractitionerPrice, 19.99);
+assert.equal(summary.sponsoredAnnualPrice, 239.88);
+assert.equal(summary.practitionerAmount, 19.99);
 assert.equal(summary.personalYulyfPractitioners, 1);
 assert.equal(summary.personalYulyfAmount, 0);
-assert.equal(summary.totalAmount, 45);
+assert.equal(summary.totalAmount, 52.99);
 
-const empty = centreMonthlySubscription([], new Date('2026-11-07T12:00:00+01:00'));
+const empty = centreMonthlySubscription([], { source: 'backoffice', annualBasePrice: 396, sponsoredAnnualPrice: 239.88, installments: 12 }, new Date('2026-11-07T12:00:00+01:00'));
 assert.equal(empty.totalAmount, 33);
 assert.equal(empty.sponsoredPractitioners, 0);
 assert.equal(empty.personalYulyfPractitioners, 0);
+
+const unavailable = centreMonthlySubscription([], null, new Date('2026-11-07T12:00:00+01:00'));
+assert.equal(unavailable.pricingAvailable, false);
+assert.equal(unavailable.totalAmount, null);
 
 console.log('YulyfCentre monthly subscription summary: OK');

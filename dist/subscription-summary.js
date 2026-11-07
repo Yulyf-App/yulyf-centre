@@ -1,19 +1,30 @@
-export const CENTRE_MONTHLY_BASE_PRICE = 33;
-export const CENTRE_SPONSORED_PRACTITIONER_PRICE = 12;
+const money = value => Math.round(Number(value) * 100) / 100;
 
-export function centreMonthlySubscription(relations = [], now = new Date()) {
+export function centreMonthlySubscription(relations = [], pricing = null, now = new Date()) {
   const active = relations.filter(relation => relation?.status === 'active');
   const sponsoredPractitioners = active.filter(relation => relation.accountMode === 'centre_created' || relation.billedBy === 'centre').length;
   const personalYulyfPractitioners = active.length - sponsoredPractitioners;
-  const practitionerAmount = sponsoredPractitioners * CENTRE_SPONSORED_PRACTITIONER_PRICE;
-  const totalAmount = CENTRE_MONTHLY_BASE_PRICE + practitionerAmount;
+  const available = pricing?.source === 'backoffice'
+    && Number(pricing.annualBasePrice) >= 0
+    && Number(pricing.sponsoredAnnualPrice) >= 0
+    && Number(pricing.installments) === 12;
+  const baseAnnualPrice = available ? money(pricing.annualBasePrice) : null;
+  const sponsoredAnnualPrice = available ? money(pricing.sponsoredAnnualPrice) : null;
+  const baseAmount = available ? money(baseAnnualPrice / 12) : null;
+  const sponsoredPractitionerPrice = available ? money(sponsoredAnnualPrice / 12) : null;
+  const practitionerAmount = available ? money(sponsoredPractitioners * sponsoredPractitionerPrice) : null;
+  const totalAmount = available ? money(baseAmount + practitionerAmount) : null;
   const rawMonth = new Intl.DateTimeFormat('fr-BE', { month: 'long', year: 'numeric' }).format(now);
   const monthLabel = rawMonth.charAt(0).toUpperCase() + rawMonth.slice(1);
   return {
     monthLabel,
-    baseAmount: CENTRE_MONTHLY_BASE_PRICE,
+    pricingAvailable: available,
+    installments: 12,
+    baseAnnualPrice,
+    baseAmount,
     sponsoredPractitioners,
-    sponsoredPractitionerPrice: CENTRE_SPONSORED_PRACTITIONER_PRICE,
+    sponsoredAnnualPrice,
+    sponsoredPractitionerPrice,
     practitionerAmount,
     personalYulyfPractitioners,
     personalYulyfAmount: 0,
