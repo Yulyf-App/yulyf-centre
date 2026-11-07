@@ -1,0 +1,101 @@
+.demo-navigator {
+  position: relative;
+}
+
+.demo-navigator > summary {
+  list-style: none;
+  border: 1px solid #d5b95f;
+  background: #fbefcb;
+  border-radius: 10px;
+  padding: 10px 14px;
+  color: #795d13;
+  font-weight: 800;
+  font-size: .8rem;
+  cursor: pointer;
+}
+
+.demo-navigator > summary::-webkit-details-marker {
+  display: none;
+}
+
+.demo-navigator > summary span {
+  margin-right: 6px;
+  font-size: 1.05rem;
+}
+
+.demo-navigator > nav {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 12px);
+  right: 0;
+  display: grid;
+  gap: 4px;
+  width: min(340px, calc(100vw - 32px));
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgba(6, 63, 73, .2);
+}
+
+.demo-navigator > nav > a,
+.demo-navigator .demo-current {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 11px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.demo-navigator > nav > a:hover {
+  background: #e8f4f3;
+}
+
+.demo-navigator > nav > a > span:first-child,
+.demo-navigator .demo-current > span:first-child {
+  color: #087d85;
+  font-size: 1.25rem;
+  text-align: center;
+}
+
+.demo-navigator strong,
+.demo-navigator small {
+  display: block;
+}
+
+.demo-navigator strong {
+  font-size: .83rem;
+}
+
+.demo-navigator small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: .69rem;
+  font-weight: 500;
+}
+
+.demo-navigator .demo-current {
+  border-left: 4px solid #d4a52e;
+  background: #fff4d7;
+}
+
+.demo-navigator .demo-current > span:first-child {
+  color: #9b7119;
+}
+
+@media (max-width: 760px) {
+  .demo-navigator > summary {
+    padding: 8px 10px;
+  }
+
+  .demo-navigator > nav {
+    position: fixed;
+    top: 98px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+}
