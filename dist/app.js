@@ -555,6 +555,23 @@ async function executePractitionerGateway(action, data = {}) {
   return payload;
 }
 
+async function openTechnicalDemo(link) {
+  if (!centreRow?.teamId || !isCentreOwner()) throw new Error('Seul l’administrateur du centre de démonstration peut changer d’espace.');
+  const role = link.dataset.demoRole;
+  const original = link.innerHTML;
+  link.setAttribute('aria-disabled', 'true');
+  link.innerHTML = '<span>↻</span><span><strong>Ouverture…</strong><small>Passage sécurisé en cours</small></span>';
+  try {
+    const payload = await executePractitionerGateway('demo_handoff', { role });
+    if (!payload.handoff) throw new Error('Le passage sécurisé n’a pas été transmis.');
+    window.location.assign(`https://yulyf.me/?showcase=technical&role=${encodeURIComponent(role)}#technical-demo=${encodeURIComponent(payload.handoff)}`);
+  } catch (error) {
+    link.removeAttribute('aria-disabled');
+    link.innerHTML = original;
+    showToast(error?.message || 'La démonstration ne peut pas être ouverte.');
+  }
+}
+
 async function refreshPractitionerDirectory({ synchronize = false } = {}) {
   if (!centreRow || !isCentreOwner()) {
     practitionerDirectory = [];
@@ -1149,6 +1166,13 @@ function permissionRows(permissions) {
 }
 
 document.addEventListener('click', async event => {
+  const demoLink = event.target.closest('[data-demo-role]');
+  if (demoLink) {
+    event.preventDefault();
+    if (demoLink.getAttribute('aria-disabled') === 'true') return;
+    await openTechnicalDemo(demoLink);
+    return;
+  }
   const authSwitch = event.target.closest('[data-auth-switch]');
   if (authSwitch) return renderAuthGate(authSwitch.dataset.authSwitch);
 

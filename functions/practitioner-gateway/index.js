@@ -16,6 +16,9 @@ const limit = value => JSON.stringify({ method: 'limit', values: [value] });
 const rowsPath = (tableId, queries = []) => `/tablesdb/${databaseId}/tables/${tableId}/rows${queries.length ? `?${queries.map(item => `queries[]=${encode(item)}`).join('&')}` : ''}`;
 const hashToken = value => crypto.createHash('sha256').update(value).digest('hex');
 const validId = value => /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,35}$/.test(value);
+const normalize = value => text(value, 320).toLocaleLowerCase('fr').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const demoCentres = new Set(['centre-technique-z', '6ade495b0032d398fa50']);
+const demoOwners = new Set(['centre-technique-z-admin', '6ade495a001fed5a9f34']);
 
 async function api(req, path, options = {}) {
   const response = await fetch(`${process.env.APPWRITE_FUNCTION_API_ENDPOINT}${path}`, {
@@ -35,6 +38,47 @@ async function api(req, path, options = {}) {
 
 function parsePayload(row) {
   try { return JSON.parse(row?.payload || '{}'); } catch { return {}; }
+}
+
+async function usersBy(req, attribute, value) {
+  const result = await api(req, `/users?queries[]=${encode(equal(attribute, value))}&total=false`);
+  return result.users || [];
+}
+
+async function demoHandoff(req, centre, role) {
+  if (!demoCentres.has(centre.$id) && !demoOwners.has(centre.ownerId)) {
+    throw Object.assign(new Error('Le passage direct est réservé aux environnements de démonstration.'), { status: 403 });
+  }
+  if (!['practitioner', 'patient'].includes(role)) {
+    throw Object.assign(new Error('Démonstration inconnue.'), { status: 400 });
+  }
+  const practitionerName = 'Praticien technique C';
+  const practitioner = (await usersBy(req, 'name', practitionerName)).find(item => normalize(item.name) === normalize(practitionerName));
+  if (!practitioner) throw Object.assign(new Error('Le compte praticien technique est introuvable.'), { status: 404 });
+
+  let account = practitioner;
+  let space = 'practitioner';
+  if (role === 'patient') {
+    const patientName = 'Patient technique C';
+    const rows = await api(req, rowsPath(recordsTableId, [equal('owner', practitioner.$id), equal('kind', 'patients'), limit(500)]));
+    const record = (rows.rows || []).find(row => {
+      const patient = parsePayload(row);
+      return normalize(`${patient.first || ''} ${patient.last || ''}`) === normalize(patientName);
+    });
+    if (!record) throw Object.assign(new Error('Le dossier accompagné technique est introuvable.'), { status: 404 });
+    const patient = parsePayload(record);
+    if (!patient.email) throw Object.assign(new Error('Le dossier accompagné technique ne contient pas d’adresse e-mail.'), { status: 409 });
+    account = (await usersBy(req, 'email', patient.email)).find(item => email(item.email) === email(patient.email));
+    if (!account) throw Object.assign(new Error('Le compte accompagné technique est introuvable.'), { status: 404 });
+    space = `patient:${record.$id}`;
+  }
+
+  const token = await api(req, `/users/${encode(account.$id)}/tokens`, { method: 'POST', body: JSON.stringify({ length: 64, expire: 120 }) });
+  if (!token.secret) throw Object.assign(new Error('Le passage sécurisé n’a pas pu être créé.'), { status: 503 });
+  return {
+    role,
+    handoff: Buffer.from(JSON.stringify({ userId: account.$id, secret: token.secret, space })).toString('base64url'),
+  };
 }
 
 function permissions(ownerId, teamId, practitionerUserId = '') {
@@ -261,7 +305,9 @@ export default async ({ req, res, error }) => {
       void centre; void memberships;
       return res.json({ relations, directory: directory(relations, ...sources), pricing: subscriptionPricing(sources[2], sources[3]) });
     }
-    const [{ centre, memberships }, initialRelations] = await Promise.all([context(req, centreId, userId, teamId), listRelations(req, centreId)]);
+    const verified = await context(req, centreId, userId, teamId);
+    if (body.action === 'demo_handoff') return res.json(await demoHandoff(req, verified.centre, text(body.data?.role, 32)));
+    const [{ centre, memberships }, initialRelations] = await Promise.all([Promise.resolve(verified), listRelations(req, centreId)]);
     let relations = initialRelations;
     if (body.action === 'invite') {
       const result = await createRelation(req, body.data || {}, centre);
