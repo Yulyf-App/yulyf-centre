@@ -1,3 +1,5 @@
 node_modules/
 appwrite.config.json
 *.tar.gz
+dist/release-id.js
+dist/release.json

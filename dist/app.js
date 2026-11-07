@@ -3,6 +3,7 @@ import readXlsxFile from 'read-excel-file/browser';
 import { normalizeWebsite, validWebsite } from './website.js';
 import { matchesPractitionerSearch } from './practitioner-search.js';
 import { centreMonthlySubscription } from './subscription-summary.js';
+import { RELEASE_ID } from './release-id.js';
 
 const APPWRITE_ENDPOINT = 'https://fra.cloud.appwrite.io/v1';
 const APPWRITE_PROJECT_ID = '6aa80924002a9a6b3cf7';
@@ -39,6 +40,64 @@ let editingLocationId = '';
 let locationDraftDirty = false;
 let clientImportRows = [];
 let editingClientId = '';
+let releaseUpdate = '';
+let releaseUpdating = false;
+let activeMutations = 0;
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async (input, init = {}) => {
+  const method = String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+  const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  if (mutation) { activeMutations += 1; updateReleasePrompt(); }
+  try { return await nativeFetch(input, init); }
+  finally {
+    if (mutation) { activeMutations = Math.max(0, activeMutations - 1); updateReleasePrompt(); }
+  }
+};
+
+function updateReleasePrompt() {
+  const prompt = document.getElementById('releaseUpdatePrompt');
+  if (!prompt || !releaseUpdate) return;
+  const blocked = activeMutations > 0;
+  prompt.hidden = false;
+  const message = prompt.querySelector('[data-release-state]');
+  const button = prompt.querySelector('[data-release-update]');
+  if (message) message.textContent = blocked
+    ? 'Tu pourras mettre à jour dès que la sauvegarde en cours sera terminée. Le bouton s’activera automatiquement.'
+    : 'La page va se recharger. Les données déjà enregistrées sont conservées.';
+  if (button) {
+    button.disabled = blocked || releaseUpdating;
+    button.textContent = releaseUpdating ? 'Mise à jour…' : '↻ Mettre à jour maintenant';
+  }
+}
+
+async function checkRelease() {
+  if (!RELEASE_ID || releaseUpdating) return;
+  try {
+    const response = await nativeFetch(`./release.json?current=${encodeURIComponent(RELEASE_ID)}&t=${Date.now()}`, { cache: 'no-store' });
+    if (!response.ok) return;
+    const status = await response.json();
+    if (status.release && status.release !== RELEASE_ID) {
+      releaseUpdate = status.release;
+      updateReleasePrompt();
+    }
+  } catch { /* Le réseau sera contrôlé à nouveau au prochain passage. */ }
+}
+
+document.querySelector('[data-release-update]')?.addEventListener('click', () => {
+  if (!releaseUpdate || releaseUpdating || activeMutations > 0) return;
+  releaseUpdating = true;
+  updateReleasePrompt();
+  const next = new URL(window.location.href);
+  next.searchParams.set('yulyf_release', releaseUpdate);
+  window.location.replace(next.toString());
+});
+
+window.setInterval(() => void checkRelease(), 45_000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void checkRelease();
+});
+window.setTimeout(() => void checkRelease(), 0);
 
 const permissionKeys = ['dashboard', 'clients', 'practitioners', 'agenda', 'requests', 'billing', 'documents', 'statistics', 'settings'];
 const viewPermissionKeys = { today: 'dashboard', patients: 'clients', practitioners: 'practitioners', agenda: 'agenda', requests: 'requests', billing: 'billing', documents: 'documents', statistics: 'statistics', settings: 'settings', portal: 'clients' };

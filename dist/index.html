@@ -69,6 +69,17 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <div class="release-update-backdrop" id="releaseUpdatePrompt" role="presentation" hidden>
+    <section class="release-update-dialog" role="alertdialog" aria-modal="true" aria-labelledby="centre-release-title" aria-describedby="centre-release-description">
+      <div class="release-update-icon" aria-hidden="true">↻</div>
+      <p class="release-update-eyebrow">Nouvelle version disponible</p>
+      <h2 id="centre-release-title">YulyfCentre a été mis à jour</h2>
+      <p id="centre-release-description">Une nouvelle version est prête. Mets l’application à jour maintenant pour utiliser les dernières corrections et améliorations.</p>
+      <p class="release-update-state" data-release-state>La page va se recharger. Les données déjà enregistrées sont conservées.</p>
+      <button type="button" data-release-update>↻ Mettre à jour maintenant</button>
+    </section>
+  </div>
+
   <template id="today-view">
     <div class="page-head">
       <div><p class="eyebrow">Mercredi 22 octobre 2026</p><h1 id="dashboardGreeting">Bonjour.</h1><p>Voici l'essentiel du centre aujourd'hui.</p></div>
@@ -214,6 +225,6 @@
     <article class="panel temporary-access-demo"><div><span>⚿</span><div><p class="eyebrow">Après un premier échange seulement</p><h2>Accès temporaire et limité</h2><p>Si le problème ne peut pas être résolu par messages, le centre choisit lui-même la seule rubrique accessible et la durée.</p></div></div><div class="scope-demo"><label>Rubrique accessible<select><option>Agenda du centre</option><option>Facturation</option><option>Documents administratifs</option><option>Paramètres du centre</option></select></label><label>Durée<select><option>1 heure</option><option>4 heures</option><option>8 heures</option><option>24 heures</option></select></label><button class="outline" data-action="grant-demo">Simuler l'autorisation</button></div><p class="audit-note">✓ Expiration automatique · Révocation immédiate · Toutes les actions sont journalisées · Aucun accès aux dossiers médicaux</p></article>
   </template>
 
-  <script src="app.bundle.js?v=20261107-2"></script>
+  <script src="app.bundle.js?v=20261107-3"></script>
 </body>
 </html>
