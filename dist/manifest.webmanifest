@@ -1,0 +1,21 @@
+{
+  "id": "/yulyf-centre",
+  "name": "YulyfCentre",
+  "short_name": "YulyfCentre",
+  "description": "Administration du centre Yulyf",
+  "lang": "fr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#cfedea",
+  "theme_color": "#063f49",
+  "icons": [
+    {
+      "src": "yulyf-centre-icon.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

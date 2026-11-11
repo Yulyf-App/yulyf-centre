@@ -5,8 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#063f49">
   <meta name="description" content="Prototype de YulyfCentre pour les centres multidisciplinaires.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="YulyfCentre">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>YulyfCentre — Projet en construction</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="yulyf-centre-icon.png">
+  <link rel="apple-touch-icon" href="yulyf-centre-icon.png">
   <link rel="stylesheet" href="styles.css?v=20261030-9">
   <link rel="stylesheet" href="settings.css?v=20261107-2">
   <link rel="stylesheet" href="demo-navigation.css?v=20261107-1">
@@ -235,5 +241,6 @@
   </template>
 
   <script src="app.bundle.js?v=20261107-3"></script>
+  <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(()=>undefined)}</script>
 </body>
 </html>
